@@ -22,6 +22,11 @@ _SENTENCE_END: Final = re.compile(r"(?<=[.!?])\s+")
 _LEADING_CITATIONS: Final = re.compile(r"^(?:\s*\[[rj]\d+\])+")
 _TOKEN: Final = re.compile(r"[a-z0-9]+")
 _CLAIM_LABEL: Final = re.compile(r"c([0-9]+)")
+_BULLET: Final = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+")
+_ABBREVIATIONS: Final = frozenset(
+    {"e.g.", "i.e.", "etc.", "vs.", "approx.", "incl.", "dr.", "mr.", "ms.", "mrs.", "jr.", "sr."}
+)
+_INITIALS: Final = re.compile(r"(?:[a-z]\.)+")
 _MIN_WORDS: Final = 4
 _MIN_TOKEN_LEN: Final = 3
 
@@ -37,10 +42,30 @@ class GroundednessVerdicts(BaseModel):
     unsupported: list[str] = Field(default_factory=list)
 
 
+def _split_sentences(line: str) -> list[str]:
+    """Split after . ! ? plus whitespace, except after an abbreviation or dotted initials."""
+    pieces: list[str] = []
+    carry = False
+    for part in _SENTENCE_END.split(line):
+        if carry:
+            pieces[-1] = f"{pieces[-1]} {part}"
+        else:
+            pieces.append(part)
+        last = part.split()[-1].lower() if part.split() else ""
+        carry = last in _ABBREVIATIONS or _INITIALS.fullmatch(last) is not None
+    return pieces
+
+
 def split_claims(answer: str) -> list[Claim]:
     """Sentences with at least four words (citations excluded), 0-indexed after filtering."""
     sentences: list[tuple[str, list[str]]] = []
-    for raw in _SENTENCE_END.split(answer.strip()):
+    raws = [
+        piece
+        for line in answer.splitlines()
+        if (stripped := _BULLET.sub("", line).strip())
+        for piece in _split_sentences(stripped)
+    ]
+    for raw in raws:
         lead = _LEADING_CITATIONS.match(raw)
         if lead and sentences:
             # A citation placed after the full stop belongs to the previous sentence.
@@ -110,7 +135,7 @@ class LexicalGroundedness:
             return False
         tokens = _tokens(_CITATION.sub("", claim.text))
         if not tokens:
-            return True
+            return True  # vacuous evidence: nothing to verify, but the citation is still required
         evidence = _tokens(" ".join(cited))
         return len(tokens & evidence) / len(tokens) >= self._min_overlap
 

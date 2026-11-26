@@ -70,3 +70,26 @@ async def test_claude_unlabelled_claims_skip_model() -> None:
     )
     assert (result.action, result.items) == ("flag", (0,))
     assert model.calls == []
+
+
+def test_split_claims_keeps_abbreviations_and_numbers() -> None:
+    claims = split_claims("Used streaming tools e.g. Kafka for ingestion at Acme [r1].")
+    assert [c.labels for c in claims] == [("r1",)]
+    claims = split_claims("Has 3.5 years of Node.js experience at Acme [r1].")
+    assert [c.labels for c in claims] == [("r1",)]
+    claims = split_claims("Worked with the U.S. team on payment systems [r1].")
+    assert [c.labels for c in claims] == [("r1",)]
+
+
+def test_split_claims_bullet_lines() -> None:
+    claims = split_claims(
+        "- Built Kafka pipelines at Acme [r1]\n* Led a team of five engineers [r2]\n"
+        "3. Fits the role requirements well [j1]"
+    )
+    assert [c.labels for c in claims] == [("r1",), ("r2",), ("j1",)]
+    assert claims[0].text.startswith("Built")
+
+
+async def test_lexical_cited_claim_without_content_tokens_is_supported() -> None:
+    result = await LexicalGroundedness(0.5).check(_ctx("It is as if it is so [r1]."))
+    assert result.action == "allow"
