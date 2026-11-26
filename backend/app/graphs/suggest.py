@@ -108,7 +108,7 @@ def build_suggest_graph(analyst: Analyst, *, limit: int) -> SuggestGraph:
         return {"drafts": drafts}
 
     async def validate(state: SuggestState) -> dict[str, Any]:
-        kept, rejected = validate_suggestions(state["drafts"], state["labelled"])
+        kept, rejected = validate_suggestions(state["drafts"], state["labelled"], state["targets"])
         return {"suggestions": kept, "rejected": rejected}
 
     async def finalize(state: SuggestState) -> dict[str, Any]:

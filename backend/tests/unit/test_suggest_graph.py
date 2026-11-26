@@ -82,3 +82,18 @@ async def test_no_bullets_skips_rewrite() -> None:
     assert analyst.calls == 0
     assert final["suggestions"] == []
     assert final["rejected"] == 0
+
+
+async def test_suggestions_reject_lowercase_target_skill() -> None:
+    src = chunk("Experience", 0, "Built Kafka pipelines for the data team")
+    bad = SuggestionDraft(
+        source="r1",
+        original="Built Kafka pipelines",
+        rewritten="Built Kafka pipelines on kubernetes for the data team",
+        rationale="Targets Kubernetes",
+        target_skills=["Kubernetes"],
+    )
+    graph = build_suggest_graph(FakeAnalyst([bad]), limit=5)
+    skills = [match("Kafka"), match("Kubernetes", "partial")]
+    final = await graph.ainvoke(initial_state([src], skills))
+    assert (final["suggestions"], final["rejected"]) == ([], 1)

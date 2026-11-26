@@ -1,6 +1,7 @@
 """Scripted chat model for structured-output tests (no network)."""
 
 import json
+from dataclasses import dataclass, field
 from typing import Any
 
 from langchain_core.callbacks import CallbackManagerForLLMRun
@@ -12,14 +13,24 @@ from langchain_core.runnables import Runnable, RunnableLambda
 from pydantic import BaseModel, Field, ValidationError
 
 
+@dataclass(frozen=True)
+class Reply:
+    """A scripted reply with raw ``response_metadata`` (e.g. ``stop_reason``). ``payload`` is
+    a JSON dict, or raw text (e.g. a truncated completion) that fails to parse."""
+
+    payload: dict[str, Any] | str
+    response_metadata: dict[str, Any] = field(default_factory=dict)
+
+
 class ScriptedStructuredModel(BaseChatModel):
-    """Pops one scripted item per structured call: a dict (JSON payload) or an Exception."""
+    """Pops one scripted item per structured call: a dict (JSON payload), a ``Reply`` or an
+    Exception."""
 
     model: str = "scripted"
     script: list[Any] = Field(default_factory=list)
     calls: list[list[BaseMessage]] = Field(default_factory=list)
 
-    def __init__(self, script: list[dict[str, Any] | Exception], **kwargs: Any) -> None:
+    def __init__(self, script: list[dict[str, Any] | Reply | Exception], **kwargs: Any) -> None:
         super().__init__(script=list(script), **kwargs)
 
     @property
@@ -43,11 +54,13 @@ class ScriptedStructuredModel(BaseChatModel):
             item = self.script.pop(0)
             if isinstance(item, Exception):
                 raise item
-            raw = AIMessage(content=json.dumps(item))
+            reply = item if isinstance(item, Reply) else Reply(item)
+            text = reply.payload if isinstance(reply.payload, str) else json.dumps(reply.payload)
+            raw = AIMessage(content=text, response_metadata=dict(reply.response_metadata))
             parsed: BaseModel | None = None
             error: Exception | None = None
             try:
-                parsed = schema.model_validate(item)
+                parsed = schema.model_validate_json(text)
             except ValidationError as exc:
                 # Mirror PydanticOutputParser: the ValidationError is wrapped, text embeds output.
                 msg = f"Failed to parse from completion {raw.text}. Got: {exc}"

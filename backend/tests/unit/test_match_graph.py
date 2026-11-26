@@ -9,8 +9,10 @@ from structlog.testing import capture_logs
 
 from app.analysis.repo import LoadedDocuments
 from app.api.sse import sse_stream
+from app.core.errors import ProviderError
 from app.graphs import match as match_module
 from app.graphs.match import analysis_events
+from app.llm.structured import StructuredOutputError
 from app.retrieval.search import RetrievedChunk
 from app.schemas.match import (
     AnalysisProgress,
@@ -232,3 +234,41 @@ async def test_cache_hit_skips_analyst(repo: dict[str, Any]) -> None:
     assert hit.score == done.score
     assert sum(analyst.calls.values()) == 0
     assert len(repo["saved"]) == 1
+
+
+class SkillsFailAnalyst(FakeAnalyst):
+    def __init__(self, error: Exception) -> None:
+        super().__init__(REQUIREMENTS)
+        self.error = error
+
+    async def extract_skills(self, resume: Mapping[str, RetrievedChunk]) -> list[SkillDraft]:
+        self.calls["skills"] += 1
+        raise self.error
+
+    async def match(
+        self,
+        requirements: Sequence[RequirementDraft],
+        skills: Sequence[SkillDraft],
+        resume: Mapping[str, RetrievedChunk],
+    ) -> list[MatchDraft]:
+        self.seen["match_skills"] = list(skills)
+        return await super().match(requirements, skills, resume)
+
+
+async def test_skills_extraction_failure_is_not_fatal(repo: dict[str, Any]) -> None:
+    analyst = SkillsFailAnalyst(StructuredOutputError())
+    with capture_logs() as logs:
+        events = await run(analyst)
+    done = events[-1][1]
+    assert isinstance(done, MatchAnalysis)
+    assert done.score == 50
+    assert analyst.seen["match_skills"] == []
+    assert any(e["event"] == "skills_extraction_failed" for e in logs)
+    assert len(repo["saved"]) == 1
+
+
+async def test_skills_extraction_provider_error_is_fatal(repo: dict[str, Any]) -> None:
+    out = await run_sse(SkillsFailAnalyst(ProviderError("anthropic")))
+    assert out[-1][0] == "error"
+    assert out[-1][1]["code"] == "provider_unavailable"
+    assert repo["saved"] == []

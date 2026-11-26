@@ -5,9 +5,11 @@ from uuid import uuid4
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.analysis.analyst import ClaudeAnalyst
+from app.analysis.grounding import validate_matches, validate_suggestions
+from app.analysis.score import ANALYSIS_VERSION
 from app.llm.prompts import load_prompt
 from app.retrieval.search import RetrievedChunk
-from app.schemas.match import EvidenceDraft, RequirementDraft, SkillDraft
+from app.schemas.match import EvidenceDraft, Requirement, RequirementDraft, SkillDraft
 from tests.fixtures.structured import ScriptedStructuredModel
 
 SECRET_TEXT = "Production experience with Kubernetes"
@@ -145,7 +147,8 @@ def test_name_includes_models_and_prompt_versions() -> None:
     names = ("extract_requirements", "extract_skills", "match_skills", "rewrite_bullets")
     versions = ":".join(load_prompt(n).version for n in names)
     sha8 = hashlib.sha256(versions.encode()).hexdigest()[:8]
-    assert a.name == f"claude:m-default:m-strong:{sha8}"
+    assert a.name == f"claude:m-default:m-strong:{sha8}:a{ANALYSIS_VERSION}"
+    assert ANALYSIS_VERSION == "1"
 
 
 def test_task_json_prompts_say_it_is_data() -> None:
@@ -164,3 +167,81 @@ def test_prompts_state_rules_and_limits() -> None:
     rewrite = load_prompt("rewrite_bullets").text
     assert "400 characters" in rewrite
     assert "metrics" in rewrite
+
+
+AMP_R1 = RetrievedChunk(
+    uuid4(), uuid4(), "resume", "Experience", 0, "R&D lead for Kafka pipelines at AT&T", 0.9
+)
+AMP_J1 = RetrievedChunk(uuid4(), uuid4(), "jd", "Requirements", 0, "R&D <leadership>", 0.9)
+
+
+async def test_model_strings_are_html_unescaped_and_grounded() -> None:
+    a, model = analyst(
+        {
+            "requirements": [
+                {
+                    "skill": "R&amp;D",
+                    "text": "R&amp;D &lt;leadership&gt;",
+                    "importance": "required",
+                    "source": "j1",
+                }
+            ]
+        },
+        {"skills": [{"skill": "R&amp;D", "evidence": [{"source": "r1", "quote": "R&amp;D lead"}]}]},
+        {
+            "matches": [
+                {
+                    "requirement_index": 0,
+                    "status": "matched",
+                    "evidence": [{"source": "r1", "quote": "R&amp;D lead"}],
+                }
+            ]
+        },
+    )
+    reqs = await a.extract_requirements({"j1": AMP_J1})
+    assert (reqs[0].skill, reqs[0].text) == ("R&D", "R&D <leadership>")
+    skills = await a.extract_skills({"r1": AMP_R1})
+    assert (skills[0].skill, skills[0].evidence[0].quote) == ("R&D", "R&D lead")
+    assert "R&amp;D lead" in model.calls[1][1].text  # chunk text still reaches the model escaped
+    drafts = await a.match(reqs, skills, {"r1": AMP_R1})
+    requirement = Requirement(
+        skill="R&D", text="R&D", importance="required", jd_chunk_id=AMP_J1.chunk_id
+    )
+    matches, downgraded = validate_matches(drafts, [requirement], {"r1": AMP_R1})
+    assert downgraded == 0
+    assert matches[0].status == "matched"
+    assert matches[0].evidence[0].quote == "R&D lead"
+    assert "&amp;" not in matches[0].model_dump_json()
+
+
+async def test_rewrite_strings_are_html_unescaped_and_pass_guard() -> None:
+    a, _ = analyst(
+        {
+            "suggestions": [
+                {
+                    "source": "r1",
+                    "original": "R&amp;D lead for Kafka pipelines at AT&amp;T",
+                    "rewritten": "Led R&amp;D on Kafka pipelines at AT&amp;T",
+                    "rationale": "Leads with R&amp;D",
+                    "target_skills": ["R&amp;D"],
+                }
+            ]
+        }
+    )
+    target = Requirement(skill="R&D", text="R&D", importance="required", jd_chunk_id=uuid4())
+    drafts = await a.rewrite({"r1": AMP_R1}, [target])
+    kept, rejected = validate_suggestions(drafts, {"r1": AMP_R1}, [target])
+    assert rejected == 0
+    (s,) = kept
+    assert (s.original, s.rewritten) == (
+        "R&D lead for Kafka pipelines at AT&T",
+        "Led R&D on Kafka pipelines at AT&T",
+    )
+    assert (s.rationale, s.target_skills) == ("Leads with R&D", ["R&D"])
+    assert "&amp;" not in s.model_dump_json()
+
+
+def test_extract_skills_prompt_asks_for_names_and_one_short_quote() -> None:
+    text = load_prompt("extract_skills").text.lower()
+    assert "at most 1 evidence item" in text
+    assert "100 characters" in text

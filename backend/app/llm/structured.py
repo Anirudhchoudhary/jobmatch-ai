@@ -18,6 +18,9 @@ log = structlog.get_logger(__name__)
 
 _MAX_FEEDBACK_LINES = 10
 _MAX_LINE_CHARS = 300
+_TRUNCATED_FEEDBACK = (
+    "Your previous answer was cut off; be concise. Return only the JSON, keeping strings short."
+)
 
 
 class StructuredOutputError(AppError):
@@ -54,6 +57,12 @@ def _summarize(error: BaseException) -> list[str]:
     return ["output was invalid or could not be parsed"]
 
 
+def _truncated(raw: Any) -> bool:
+    """The model hit ``max_tokens`` (Anthropic ``stop_reason``); retrying it is pointless."""
+    metadata = raw.response_metadata if isinstance(raw, BaseMessage) else {}
+    return bool(metadata.get("stop_reason") == "max_tokens")
+
+
 def _feedback(raw: Any, errors: list[str]) -> list[BaseMessage]:
     lines = [e[:_MAX_LINE_CHARS] for e in errors[:_MAX_FEEDBACK_LINES]]
     text = raw.text if isinstance(raw, BaseMessage) else str(raw or "")
@@ -74,11 +83,14 @@ async def run_structured[T: BaseModel](
     max_attempts_per_model: int = 2,
     start_index: int = 0,
 ) -> StructuredResult[T]:
+    # Feedback carried to the next model after a truncated answer.
+    carry: list[BaseMessage] = []
     for index in range(start_index, len(models)):
         runnable = models[index].with_structured_output(
             schema, method="json_schema", include_raw=True
         )
-        msgs = list(messages)
+        base = [*messages, *carry]
+        msgs = base
         for attempt in range(1, max_attempts_per_model + 1):
             try:
                 out: dict[str, Any] = await runnable.ainvoke(msgs)  # type: ignore[assignment]
@@ -94,6 +106,7 @@ async def run_structured[T: BaseModel](
                 errors = validate(parsed)
             if parsed is not None and not errors:
                 return StructuredResult(parsed, index, attempt)
+            truncated = _truncated(out.get("raw"))
             log.warning(
                 "structured_attempt_failed",
                 step=step,
@@ -101,6 +114,10 @@ async def run_structured[T: BaseModel](
                 attempt=attempt,
                 error_count=len(errors),
                 escalated=index > start_index,
+                truncated=truncated,
             )
-            msgs = [*messages, *_feedback(out.get("raw"), errors)]
+            if truncated:
+                carry = [HumanMessage(content=_TRUNCATED_FEEDBACK)]
+                break
+            msgs = [*base, *_feedback(out.get("raw"), errors)]
     raise StructuredOutputError

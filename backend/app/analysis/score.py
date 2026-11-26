@@ -7,6 +7,10 @@ from decimal import ROUND_HALF_UP, Decimal
 from app.core.errors import AppError
 from app.schemas.match import SkillMatch
 
+# Part of every analyst name (the cache key): bump when grounding or score rules change so
+# stored analyses computed under the old rules are recomputed.
+ANALYSIS_VERSION = "1"
+
 WEIGHTS = {"required": 3, "nice_to_have": 1}
 CREDITS = {"matched": 1.0, "partial": 0.5, "missing": 0.0}
 

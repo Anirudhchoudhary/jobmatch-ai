@@ -25,6 +25,7 @@ from app.analysis.score import ScoreResult, compute_score
 from app.core.errors import AppError
 from app.core.request_id import request_id_var
 from app.graphs.citations import label_context
+from app.llm.structured import StructuredOutputError
 from app.retrieval.search import RetrievedChunk
 from app.schemas.match import (
     AnalysisProgress,
@@ -123,7 +124,13 @@ def build_match_graph(analyst: Analyst) -> MatchGraph:
     async def extract_resume_skills(state: MatchState) -> dict[str, Any]:
         _progress("extracting_skills")
         start = time.perf_counter()
-        skills = await analyst.extract_skills(_of_type(state["labelled"], "resume"))
+        try:
+            skills = await analyst.extract_skills(_of_type(state["labelled"], "resume"))
+        except StructuredOutputError:
+            # Skills are only context for matching: an unusable answer is not fatal (a
+            # provider error still is).
+            log.warning("skills_extraction_failed", ms=_ms(start))
+            return {"skills": []}
         log.info("analysis_skills_extracted", skill_count=len(skills), ms=_ms(start))
         return {"skills": skills}
 

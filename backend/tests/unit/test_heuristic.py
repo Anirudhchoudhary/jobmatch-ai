@@ -106,7 +106,7 @@ async def test_heuristic_rewrite_is_guard_clean(resume: dict[str, RetrievedChunk
     assert all(d.rewritten == d.original for d in drafts)
     assert drafts[0].rationale == "Offline mode: rewriting needs a real model."
     assert "Designed an event-driven order tracking platform" in "".join(d.original for d in drafts)
-    kept, rejected = validate_suggestions(drafts, resume)
+    kept, rejected = validate_suggestions(drafts, resume, [])
     assert rejected == 0
     assert len(kept) == len(drafts)
 
@@ -121,4 +121,4 @@ async def test_heuristic_rewrite_prefers_bullets_skips_headings() -> None:
 
 
 def test_heuristic_name() -> None:
-    assert HeuristicAnalyst().name == "heuristic:v1"
+    assert HeuristicAnalyst().name == "heuristic:v1:a1"

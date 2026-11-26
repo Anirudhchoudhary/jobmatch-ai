@@ -9,7 +9,7 @@ from structlog.testing import capture_logs
 
 from app.core.errors import ProviderError
 from app.llm.structured import StructuredOutputError, pick_start_index, run_structured
-from tests.fixtures.structured import ScriptedStructuredModel
+from tests.fixtures.structured import Reply, ScriptedStructuredModel
 
 
 class Out(BaseModel):
@@ -119,3 +119,38 @@ async def test_parser_exception_text_not_in_feedback() -> None:
     m = Leaky([])
     await run_structured(Out, MSGS, models=[m], step="t")
     assert "SECRETCOMPLETION" not in "".join(str(x.content) for x in m.calls[1])
+
+
+TRUNCATED = Reply('{"n": ', {"stop_reason": "max_tokens"})
+
+
+async def test_truncated_output_escalates_without_same_model_retry() -> None:
+    a = ScriptedStructuredModel([TRUNCATED, {"n": 1}])
+    b = ScriptedStructuredModel([{"n": 2}])
+    with capture_logs() as logs:
+        r = await run_structured(Out, MSGS, models=[a, b], step="t")
+    assert (r.value.n, r.model_index, r.attempts) == (2, 1, 1)
+    assert (len(a.calls), len(b.calls)) == (1, 1)
+    feedback = b.calls[0][-1]
+    assert isinstance(feedback, HumanMessage)
+    assert "cut off" in feedback.text
+    assert "be concise" in feedback.text
+    assert b.calls[0][: len(MSGS)] == MSGS
+    failed = [e for e in logs if e["event"] == "structured_attempt_failed"]
+    assert [e["truncated"] for e in failed] == [True]
+
+
+async def test_truncated_on_last_model_raises() -> None:
+    a = ScriptedStructuredModel([TRUNCATED])
+    b = ScriptedStructuredModel([TRUNCATED, {"n": 1}])
+    with pytest.raises(StructuredOutputError):
+        await run_structured(Out, MSGS, models=[a, b], step="t")
+    assert (len(a.calls), len(b.calls)) == (1, 1)
+
+
+async def test_untruncated_failure_logs_truncated_false() -> None:
+    m = ScriptedStructuredModel([Reply({"n": "x"}, {"stop_reason": "end_turn"}), {"n": 1}])
+    with capture_logs() as logs:
+        await run_structured(Out, MSGS, models=[m], step="t")
+    failed = [e for e in logs if e["event"] == "structured_attempt_failed"]
+    assert [e["truncated"] for e in failed] == [False]

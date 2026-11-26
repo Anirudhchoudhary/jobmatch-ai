@@ -4,7 +4,7 @@ import pytest
 
 from app.analysis.grounding import unsupported_terms, validate_suggestions
 from app.retrieval.search import RetrievedChunk
-from app.schemas.match import SuggestionDraft
+from app.schemas.match import Requirement, SuggestionDraft
 
 SOURCE = "Software Engineer, Acme Corp\nBuilt Kafka pipelines processing 2M events/day"
 R1 = RetrievedChunk(uuid4(), uuid4(), "resume", "Experience", 0, SOURCE, 0.9)
@@ -12,14 +12,23 @@ J1 = RetrievedChunk(uuid4(), uuid4(), "jd", "Requirements", 0, "Kafka pipelines"
 LABELLED = {"r1": R1, "j1": J1}
 
 
-def suggestion(source: str, original: str, rewritten: str) -> SuggestionDraft:
+def suggestion(
+    source: str, original: str, rewritten: str, target_skills: list[str] | None = None
+) -> SuggestionDraft:
     return SuggestionDraft(
         source=source,
         original=original,
         rewritten=rewritten,
         rationale="Leads with the impact.",
-        target_skills=["Kafka"],
+        target_skills=["Kafka"] if target_skills is None else target_skills,
     )
+
+
+def target(skill: str) -> Requirement:
+    return Requirement(skill=skill, text=skill, importance="required", jd_chunk_id=uuid4())
+
+
+TARGETS = [target("Kafka"), target("Kubernetes")]
 
 
 def test_unsupported_terms_flags_new_metric_employer_skill() -> None:
@@ -80,7 +89,7 @@ def test_validate_suggestions_rejects_and_counts() -> None:
         suggestion("r1", "Built Spark jobs", "Built Spark jobs"),
         suggestion("j1", "Kafka pipelines", "Kafka pipelines"),
     ]
-    kept, rejected = validate_suggestions(drafts, LABELLED)
+    kept, rejected = validate_suggestions(drafts, LABELLED, TARGETS)
     assert rejected == 2
     assert len(kept) == 1
     assert kept[0].original_chunk_id == R1.chunk_id
@@ -90,4 +99,54 @@ def test_validate_suggestions_rejects_and_counts() -> None:
 
 def test_validate_suggestions_rejects_unsupported_rewrite() -> None:
     drafts = [suggestion("r1", "Built Kafka pipelines", "Built Kafka pipelines at Google")]
-    assert validate_suggestions(drafts, LABELLED) == ([], 1)
+    assert validate_suggestions(drafts, LABELLED, TARGETS) == ([], 1)
+
+
+@pytest.mark.parametrize(
+    "rewritten",
+    [
+        "Built Kubernetes-orchestrated Kafka pipelines",
+        "Built Kafka pipelines (e.g. Kubernetes jobs)",
+        "Built Kafka pipelines on kubernetes",
+        "Built Kafka pipelines. Kubernetes managed them",
+        "Built Kafka pipelines with Kubernetes's operators",
+        "Built Kafka/kubernetes pipelines",
+    ],
+)
+def test_validate_suggestions_rejects_new_target_skill(rewritten: str) -> None:
+    drafts = [suggestion("r1", "Built Kafka pipelines", rewritten)]
+    assert validate_suggestions(drafts, LABELLED, TARGETS) == ([], 1)
+
+
+@pytest.mark.parametrize(
+    "rewritten",
+    ["Built Kafka pipelines! Google teams used them", "Built Kafka pipelines at google"],
+)
+def test_validate_suggestions_rejects_new_target_employer(rewritten: str) -> None:
+    drafts = [suggestion("r1", "Built Kafka pipelines", rewritten)]
+    assert validate_suggestions(drafts, LABELLED, [target("Google")]) == ([], 1)
+
+
+def test_validate_suggestions_target_terms_in_source_are_allowed() -> None:
+    src = "Ran kubernetes clusters for Kafka-based pipelines"
+    labelled = {"r1": RetrievedChunk(uuid4(), uuid4(), "resume", "Experience", 0, src, 0.9)}
+    drafts = [
+        suggestion("r1", "Ran kubernetes clusters", "Ran Kubernetes clusters for Kafka pipelines")
+    ]
+    kept, rejected = validate_suggestions(drafts, labelled, TARGETS)
+    assert (len(kept), rejected) == (1, 0)
+
+
+def test_validate_suggestions_target_skills_limited_to_targets() -> None:
+    long = "kafka" + "x" * 100
+    drafts = [
+        suggestion(
+            "r1",
+            "Built Kafka pipelines",
+            "Designed Kafka pipelines",
+            target_skills=["kafka", "Leadership", "KUBERNETES", long],
+        )
+    ]
+    long_target = target(long)
+    kept, _ = validate_suggestions(drafts, LABELLED, [*TARGETS, long_target])
+    assert kept[0].target_skills == ["kafka", "KUBERNETES", long[:80]]

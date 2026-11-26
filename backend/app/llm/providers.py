@@ -45,9 +45,10 @@ def get_providers() -> Providers:
         reranker = BedrockReranker(agent_client, s.effective_rerank_arn)
     else:
         reranker = NoopReranker()
+    tokens, timeout = s.structured_max_tokens, s.structured_timeout_s
     structured = (
-        make_chat_model(s, model=s.chat_model, max_tokens=s.structured_max_tokens),
-        make_chat_model(s, model=s.strong_chat_model, max_tokens=s.structured_max_tokens),
+        make_chat_model(s, model=s.chat_model, max_tokens=tokens, timeout_s=timeout),
+        make_chat_model(s, model=s.strong_chat_model, max_tokens=tokens, timeout_s=timeout),
     )
     analyst: Analyst
     if s.llm_provider == "anthropic":

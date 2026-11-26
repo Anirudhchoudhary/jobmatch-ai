@@ -19,7 +19,11 @@ def _fake_replies() -> Iterator[AIMessage]:
 
 
 def make_chat_model(
-    settings: Settings, *, model: str | None = None, max_tokens: int | None = None
+    settings: Settings,
+    *,
+    model: str | None = None,
+    max_tokens: int | None = None,
+    timeout_s: float | None = None,
 ) -> BaseChatModel:
     if settings.llm_provider == "anthropic":
         if settings.anthropic_api_key is None:  # Settings validator already guarantees this
@@ -27,7 +31,7 @@ def make_chat_model(
         return ChatAnthropic(
             model=model if model is not None else settings.chat_model,
             max_tokens=max_tokens if max_tokens is not None else settings.chat_max_tokens,
-            timeout=settings.llm_timeout_s,
+            timeout=timeout_s if timeout_s is not None else settings.llm_timeout_s,
             max_retries=2,
             api_key=settings.anthropic_api_key,
             effort="medium",

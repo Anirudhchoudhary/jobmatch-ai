@@ -5,6 +5,7 @@ import re
 import unicodedata
 from collections.abc import Mapping, Sequence
 
+from app.analysis.heuristic import _WORD, _tokens
 from app.retrieval.search import RetrievedChunk
 from app.schemas.match import (
     BulletSuggestion,
@@ -24,6 +25,7 @@ _TOKEN = re.compile(r"\S+")
 _EDGE = re.compile(r"^[^\w+#$%]+|[^\w+#$%]+$")
 _POSSESSIVE = re.compile(r"['’]s$", re.IGNORECASE)
 _SENTENCE_END = frozenset(".!?")
+_MAX_TARGET_SKILL_CHARS = 80
 
 
 def normalize(text: str) -> str:
@@ -117,11 +119,29 @@ def unsupported_terms(rewritten: str, source: str) -> list[str]:
     )
 
 
+def new_target_terms(rewritten: str, source: str, targets: Sequence[Requirement]) -> list[str]:
+    """Tokens of the target requirements' skill names (3+ chars, not stopwords) that
+    ``rewritten`` uses but ``source`` lacks (case-insensitive, whole word). Words are split
+    on hyphens, slashes and punctuation, so "Kubernetes-orchestrated", "on kubernetes" and
+    "Kubernetes's" all count. Sorted and unique."""
+    wanted = {t for r in targets for t in _tokens(r.skill)}
+    used = wanted & set(_WORD.findall(rewritten.lower()))
+    return sorted(t for t in used if not _whole_word_in(t, source))
+
+
+def _target_skills(names: Sequence[str], targets: Sequence[Requirement]) -> list[str]:
+    allowed = {r.skill.strip().casefold() for r in targets}
+    return [n[:_MAX_TARGET_SKILL_CHARS] for n in names if n.strip().casefold() in allowed]
+
+
 def validate_suggestions(
-    drafts: Sequence[SuggestionDraft], labelled: Mapping[str, RetrievedChunk]
+    drafts: Sequence[SuggestionDraft],
+    labelled: Mapping[str, RetrievedChunk],
+    targets: Sequence[Requirement],
 ) -> tuple[list[BulletSuggestion], int]:
     """Keep drafts whose original is quoted from the cited resume chunk and whose rewrite adds
-    nothing unsupported; every dropped draft counts as a rejection."""
+    nothing unsupported: no new numbers or terms, and no target skill word the chunk lacks.
+    ``target_skills`` keeps only names of the targets. Every dropped draft is a rejection."""
     kept: list[BulletSuggestion] = []
     for d in drafts:
         chunk = labelled.get(d.source)
@@ -130,6 +150,7 @@ def validate_suggestions(
             and chunk.doc_type == "resume"
             and quote_in_chunk(d.original, chunk.text)
             and not unsupported_terms(d.rewritten, chunk.text)
+            and not new_target_terms(d.rewritten, chunk.text, targets)
         ):
             kept.append(
                 BulletSuggestion(
@@ -137,7 +158,7 @@ def validate_suggestions(
                     original=d.original,
                     rewritten=d.rewritten,
                     rationale=d.rationale,
-                    target_skills=list(d.target_skills),
+                    target_skills=_target_skills(d.target_skills, targets),
                 )
             )
     return kept, len(drafts) - len(kept)

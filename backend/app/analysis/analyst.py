@@ -6,6 +6,7 @@ runner can feed errors back; quote grounding is checked deterministically afterw
 """
 
 import hashlib
+import html
 import json
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Protocol
@@ -14,6 +15,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel
 
+from app.analysis.score import ANALYSIS_VERSION
 from app.graphs.citations import format_context
 from app.llm.prompts import Prompt, load_prompt
 from app.llm.structured import pick_start_index, run_structured
@@ -71,6 +73,22 @@ def _evidence_errors(path: str, evidence: Sequence[EvidenceDraft], allowed: set[
     ]
 
 
+def _unescape(value: Any) -> Any:
+    if isinstance(value, str):
+        return html.unescape(value)
+    if isinstance(value, list):
+        return [_unescape(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _unescape(v) for k, v in value.items()}
+    return value
+
+
+def _unescaped[T: BaseModel](value: T) -> T:
+    """Every model string with HTML entities decoded: chunk text reaches the model escaped
+    (``R&amp;D``), so verbatim quotes and rewrites come back escaped and must match raw text."""
+    return type(value).model_validate(_unescape(value.model_dump()))
+
+
 def _json(items: list[dict[str, Any]]) -> str:
     return json.dumps(items, ensure_ascii=False, indent=1)
 
@@ -89,7 +107,8 @@ class ClaudeAnalyst:
         self._prompts: dict[str, Prompt] = {n: load_prompt(n) for n in PROMPT_NAMES}
         versions = ":".join(p.version for p in self._prompts.values())
         sha8 = hashlib.sha256(versions.encode()).hexdigest()[:8]
-        self.name = f"claude:{_model_id(models[0])}:{_model_id(models[1])}:{sha8}"
+        models_id = f"{_model_id(models[0])}:{_model_id(models[1])}"
+        self.name = f"claude:{models_id}:{sha8}:a{ANALYSIS_VERSION}"
 
     async def _run[T: BaseModel](
         self,
@@ -112,7 +131,7 @@ class ClaudeAnalyst:
             max_attempts_per_model=self._max_attempts,
             start_index=pick_start_index(messages, self._strong_input_chars),
         )
-        return result.value
+        return _unescaped(result.value)
 
     async def extract_requirements(
         self, jd: Mapping[str, RetrievedChunk]

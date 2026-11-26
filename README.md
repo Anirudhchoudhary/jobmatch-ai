@@ -125,7 +125,12 @@ curl -s -X POST localhost:8000/api/suggestions -H 'Content-Type: application/jso
 
 Suggestions return `BulletSuggestions`: `analysis_id`, `suggestions` (each with `original_chunk_id`, `original`, `rewritten`, `rationale` and `target_skills`), `rejected_count`, `analyst` and `request_id`. At most 5 are returned.
 
-Errors use the usual `{error: {code, message}}` shape: `documents_required` (409, no resume or job description yet), `no_requirements` (422, nothing extractable from the job description), `analysis_required` (409, run an analysis before asking for suggestions), `analysis_not_found` (404), `model_output_invalid` (502) and `provider_unavailable` (503).
+Errors come in two shapes:
+
+- `POST /api/suggestions` returns the usual JSON envelope `{"error": {"code", "message", "request_id"}}` with the HTTP status below.
+- `POST /api/stream/analyses` has already answered HTTP 200 and sent `progress` events when a failure happens, so it ends the stream with one `event: error` whose data is `{"code", "message", "request_id"}` (no `done` event follows).
+
+Codes: `documents_required` (409, no resume or job description yet), `no_requirements` (422, nothing extractable from the job description), `analysis_required` (409, run an analysis before asking for suggestions), `analysis_not_found` (404), `model_output_invalid` (502) and `provider_unavailable` (503). In the stream the number is not sent; only the code is.
 
 ### Score
 
@@ -135,23 +140,25 @@ The model never picks the score; code computes it from the validated matches. Ea
 score = round(100 * sum(weight * credit) / sum(weight))    # halves round up: 62.5 -> 63
 ```
 
-`required_coverage` and `nice_to_have_coverage` are the average credit within each group (`nice_to_have_coverage` is `null` when the job description has no nice-to-haves). A job description with no requirements fails with `no_requirements`.
+`required_coverage` and `nice_to_have_coverage` are the average credit within each group (`nice_to_have_coverage` is `null` when the job description has no nice-to-haves; `required_coverage` is `0.0` when it has no required items). A job description with no requirements fails with `no_requirements`.
 
 ### Grounding and fabrication guards
 
 The model only references chunks by label (`r<n>` for resume chunks, `j<n>` for the job description); code maps labels to chunk ids, and document text is passed as data inside escaped `<chunk>` tags, never as instructions.
 
 - Evidence: a quote counts only if it cites a resume chunk and, after normalization (Unicode NFKC, lowercase, whitespace collapsed), is a substring of that chunk. Invalid quotes are dropped. A `matched` or `partial` skill left with no valid evidence becomes `missing`, and `downgraded_count` says how many were downgraded.
-- Suggestions: a rewritten bullet is rejected if it contains any number, money or percentage value, or any term (a token with a digit, `+` or `#`; an ALL-CAPS token; or a capitalized word that does not start a sentence) that is not in the cited source chunk. The quoted `original` must also appear in that chunk. Rejected suggestions are dropped and counted in `rejected_count`.
+- Suggestions: a rewritten bullet is rejected if it contains any number, money or percentage value, or any term (a token with a digit, `+` or `#`; an ALL-CAPS token; or a capitalized word that does not start a sentence) that is not in the cited source chunk. The quoted `original` must also appear in that chunk. A rewrite is also rejected if it uses any word of a target requirement's skill name (3+ letters, not a stopword; case-insensitive, split on hyphens, slashes and punctuation, so "Kubernetes-orchestrated", "on kubernetes" and "Kubernetes's" all count) that the source chunk lacks. `target_skills` keeps only names of the target requirements (at most 80 characters each). Rejected suggestions are dropped and counted in `rejected_count`.
+- Model output is HTML-unescaped before these checks: chunk text reaches the model escaped (`R&D` as `R&amp;D`), so quotes are compared, and returned, in their raw form.
+- Known gaps: the guard is lexical. A new employer or tool that is not a target skill can slip through when it is capitalized at the start of a sentence ("Built pipelines. Google teams used them") or written in lowercase ("at google"). Paraphrased claims without new terms (for example "led the team" for "was on the team") are not detected either.
 
 ### Caching and invalidation
 
-An analysis is stored per (resume, job description, analyst), where the analyst name encodes the implementation, models and prompt versions. Repeating the request returns the stored result immediately with `cached: true` and no model calls. Replacing the resume or job description deletes the analyses that referenced the old document (cascade), so the next request recomputes. Changing the analyst (provider, model or prompt version) also misses the cache. Suggestions are computed on each request from a stored analysis and are not cached.
+An analysis is stored per (resume, job description, analyst), where the analyst name encodes the implementation, models, prompt versions and the analysis rules version (`:a1` suffix, `ANALYSIS_VERSION` in `app/analysis/score.py`, bumped when grounding or score rules change). Repeating the request returns the stored result immediately with `cached: true` and no model calls. Replacing the resume or job description deletes the analyses that referenced the old document (cascade), so the next request recomputes. Changing the analyst (provider, model, prompt or rules version) also misses the cache. Suggestions are computed on each request from a stored analysis and are not cached.
 
 ### Offline heuristic versus real Claude
 
-By default (`LLM_PROVIDER=fake`, which is what `make run` uses) the analyst is an offline heuristic (`heuristic:v1`): it matches keywords against the resume and leaves bullets unchanged ("Offline mode: rewriting needs a real model."), so the plumbing, grounding and scoring can be exercised without cloud access. For real analysis, run the API on the host with `LLM_PROVIDER=anthropic` exactly as in "Real providers" above; the analyst then uses Claude (`claude-haiku-5-5`, escalating to `claude-sonnet-5-5`).
+By default (`LLM_PROVIDER=fake`, which is what `make run` uses) the analyst is an offline heuristic (`heuristic:v1:a1`): it matches keywords against the resume and leaves bullets unchanged ("Offline mode: rewriting needs a real model."), so the plumbing, grounding and scoring can be exercised without cloud access. For real analysis, run the API on the host with `LLM_PROVIDER=anthropic` exactly as in "Real providers" above; the analyst then uses Claude (`claude-haiku-5-5`, escalating to `claude-sonnet-5-5`).
 
 ### Retry and escalation
 
-Every structured model call asks for schema-constrained JSON. If the output does not validate, the same model is retried once with the validation errors as feedback. After two failed attempts on Haiku the call escalates to Sonnet, which also gets two attempts. If those fail too the request returns `model_output_invalid` (502). Prompts longer than 24,000 characters start on Sonnet directly. A provider error (API outage, rate limit) is not retried here and returns `provider_unavailable` (503); fallback providers come in a later phase.
+Every structured model call asks for schema-constrained JSON. If the output does not validate, the same model is retried once with the validation errors as feedback. After two failed attempts on Haiku the call escalates to Sonnet, which also gets two attempts. If those fail too the request returns `model_output_invalid` (502). Prompts longer than 24,000 characters start on Sonnet directly. Structured calls allow 12,000 output tokens (`STRUCTURED_MAX_TOKENS`; adaptive thinking counts against it) and a 120 s timeout (`STRUCTURED_TIMEOUT_S`; chat keeps `LLM_TIMEOUT_S`). An answer cut off at the token limit (`stop_reason` `max_tokens`) is not retried on the same model: the call escalates at once, telling Sonnet to be concise. Skill extraction only gives the matcher context, so if it returns an unusable answer the analysis continues without it (logged as `skills_extraction_failed`); a provider error still fails the analysis. A provider error (API outage, rate limit) is not retried here and returns `provider_unavailable` (503); fallback providers come in a later phase.

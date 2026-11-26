@@ -3,6 +3,7 @@
 import re
 from collections.abc import Mapping, Sequence
 
+from app.analysis.score import ANALYSIS_VERSION
 from app.retrieval.search import RetrievedChunk
 from app.schemas.match import (
     EvidenceDraft,
@@ -69,7 +70,7 @@ def _has_phrase(phrase: str, line: str) -> bool:
 
 
 class HeuristicAnalyst:
-    name = "heuristic:v1"
+    name = f"heuristic:v1:a{ANALYSIS_VERSION}"
 
     async def extract_requirements(
         self, jd: Mapping[str, RetrievedChunk]
