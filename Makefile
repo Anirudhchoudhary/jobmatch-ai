@@ -6,7 +6,7 @@ RUN2 = && $(UV) run
 DATABASE_URL ?= postgresql+psycopg://jobmatch:jobmatch@localhost:5432/jobmatch
 export DATABASE_URL
 
-.PHONY: install lint fmt typecheck test test-integration env up down migrate db-shell
+.PHONY: install lint fmt typecheck test test-integration env up down migrate db-shell setup run logs
 
 install:
 	cd backend && $(UV) sync
@@ -40,3 +40,11 @@ migrate:
 
 db-shell:
 	docker compose exec db psql -U jobmatch jobmatch
+
+setup: install up migrate
+
+run:
+	docker compose up -d --build --wait
+
+logs:
+	docker compose logs -f api

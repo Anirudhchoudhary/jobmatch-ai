@@ -15,5 +15,28 @@ services:
       timeout: 3s
       retries: 15
 
+  api:
+    build: ./backend
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Dev-only, non-secret; overrides any DATABASE_URL from .env so the container reaches db.
+      DATABASE_URL: postgresql+psycopg://jobmatch:jobmatch@db:5432/jobmatch
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
 volumes:
   pgdata:
