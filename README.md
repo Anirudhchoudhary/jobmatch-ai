@@ -1,6 +1,6 @@
 # JobMatch AI
 
-JobMatch AI is a backend that matches resumes to jobs using LLMs and pgvector similarity search. This repository currently contains Phases 1 and 2: a FastAPI app with structured, PII-redacted logging, a Postgres + pgvector database, migrations and a health endpoint (Phase 1), plus resume/JD ingestion, hybrid retrieval with reranking and streamed, cited chat (Phase 2).
+JobMatch AI is a backend that matches resumes to jobs using LLMs and pgvector similarity search. This repository currently contains Phases 1 to 3: a FastAPI app with structured, PII-redacted logging, a Postgres + pgvector database, migrations and a health endpoint (Phase 1), plus resume/JD ingestion, hybrid retrieval with reranking and streamed, cited chat (Phase 2), plus grounded match analysis and resume bullet suggestions (Phase 3).
 
 ## Prerequisites
 
@@ -107,3 +107,51 @@ Bedrock calls use region `us-west-2` and need these IAM actions:
 | hybrid+rerank | 0.917 | 0.778 | 12 |
 
 Live run with Titan embeddings and Amazon Rerank over the bundled samples (12 questions, 11 chunks). The corpus is tiny, so these numbers are indicative only. The script refuses to write under `evals/` unless `EMBEDDER_PROVIDER=bedrock`.
+
+## Phase 3: match analysis and suggestions
+
+With the resume and job description ingested (for example via `POST /api/samples`), run a match analysis. It streams `progress` events (`loading`, `extracting_requirements`, `extracting_skills`, `matching`, `validating`, `scoring`), then one `done` event carrying the `MatchAnalysis`: `analysis_id`, `score` (0 to 100), `required_coverage`, `nice_to_have_coverage`, `skills` (each requirement with its `status` of `matched`, `partial` or `missing` and its resume `evidence` quotes), `downgraded_count`, `analyst`, `cached` and `request_id`.
+
+```sh
+curl -N -X POST localhost:8000/api/samples
+curl -N -X POST localhost:8000/api/stream/analyses
+
+# suggestions for the latest analysis of your current resume and job description
+curl -s -X POST localhost:8000/api/suggestions -H 'Content-Type: application/json' -d '{}'
+# or for a specific analysis
+curl -s -X POST localhost:8000/api/suggestions -H 'Content-Type: application/json' \
+  -d '{"analysis_id":"<analysis_id from the done event>"}'
+```
+
+Suggestions return `BulletSuggestions`: `analysis_id`, `suggestions` (each with `original_chunk_id`, `original`, `rewritten`, `rationale` and `target_skills`), `rejected_count`, `analyst` and `request_id`. At most 5 are returned.
+
+Errors use the usual `{error: {code, message}}` shape: `documents_required` (409, no resume or job description yet), `no_requirements` (422, nothing extractable from the job description), `analysis_required` (409, run an analysis before asking for suggestions), `analysis_not_found` (404), `model_output_invalid` (502) and `provider_unavailable` (503).
+
+### Score
+
+The model never picks the score; code computes it from the validated matches. Each requirement has a weight (`required` = 3, `nice_to_have` = 1) and a credit (`matched` = 1, `partial` = 0.5, `missing` = 0):
+
+```
+score = round(100 * sum(weight * credit) / sum(weight))    # halves round up: 62.5 -> 63
+```
+
+`required_coverage` and `nice_to_have_coverage` are the average credit within each group (`nice_to_have_coverage` is `null` when the job description has no nice-to-haves). A job description with no requirements fails with `no_requirements`.
+
+### Grounding and fabrication guards
+
+The model only references chunks by label (`r<n>` for resume chunks, `j<n>` for the job description); code maps labels to chunk ids, and document text is passed as data inside escaped `<chunk>` tags, never as instructions.
+
+- Evidence: a quote counts only if it cites a resume chunk and, after normalization (Unicode NFKC, lowercase, whitespace collapsed), is a substring of that chunk. Invalid quotes are dropped. A `matched` or `partial` skill left with no valid evidence becomes `missing`, and `downgraded_count` says how many were downgraded.
+- Suggestions: a rewritten bullet is rejected if it contains any number, money or percentage value, or any term (a token with a digit, `+` or `#`; an ALL-CAPS token; or a capitalized word that does not start a sentence) that is not in the cited source chunk. The quoted `original` must also appear in that chunk. Rejected suggestions are dropped and counted in `rejected_count`.
+
+### Caching and invalidation
+
+An analysis is stored per (resume, job description, analyst), where the analyst name encodes the implementation, models and prompt versions. Repeating the request returns the stored result immediately with `cached: true` and no model calls. Replacing the resume or job description deletes the analyses that referenced the old document (cascade), so the next request recomputes. Changing the analyst (provider, model or prompt version) also misses the cache. Suggestions are computed on each request from a stored analysis and are not cached.
+
+### Offline heuristic versus real Claude
+
+By default (`LLM_PROVIDER=fake`, which is what `make run` uses) the analyst is an offline heuristic (`heuristic:v1`): it matches keywords against the resume and leaves bullets unchanged ("Offline mode: rewriting needs a real model."), so the plumbing, grounding and scoring can be exercised without cloud access. For real analysis, run the API on the host with `LLM_PROVIDER=anthropic` exactly as in "Real providers" above; the analyst then uses Claude (`claude-haiku-5-5`, escalating to `claude-sonnet-5-5`).
+
+### Retry and escalation
+
+Every structured model call asks for schema-constrained JSON. If the output does not validate, the same model is retried once with the validation errors as feedback. After two failed attempts on Haiku the call escalates to Sonnet, which also gets two attempts. If those fail too the request returns `model_output_invalid` (502). Prompts longer than 24,000 characters start on Sonnet directly. A provider error (API outage, rate limit) is not retried here and returns `provider_unavailable` (503); fallback providers come in a later phase.
