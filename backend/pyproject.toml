@@ -14,6 +14,9 @@ dependencies = [
     "boto3",
     "structlog",
     "pypdf>=7.2.0",
+    "langgraph>=1.2.24",
+    "langchain-core>=1.8.5",
+    "langchain-anthropic>=1.7.13",
 ]
 
 [dependency-groups]
@@ -23,11 +26,12 @@ dev = [
     "httpx",
     "ruff",
     "mypy",
-    "boto3-stubs[secretsmanager]",
+    "boto3-stubs[bedrock-agent-runtime,bedrock-runtime,secretsmanager]",
     "python-dotenv",
     "pre-commit",
     "fpdf2>=2.9.0",
     "cryptography>=50.0.2",
+    "httpx2>=2.16.2",
 ]
 
 [tool.uv]
