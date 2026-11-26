@@ -3,6 +3,7 @@
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Literal
 
 from fastapi import FastAPI
 from pydantic import ValidationError
@@ -31,6 +32,13 @@ def _log_level() -> str:
         return os.environ.get("LOG_LEVEL", "INFO")
 
 
+def _pii_engine() -> Literal["regex", "presidio"]:
+    try:
+        return get_settings().pii_engine
+    except ValidationError:
+        return "regex"
+
+
 def _env() -> str:
     try:
         return get_settings().env
@@ -48,7 +56,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     # Runs at import time under uvicorn, after its dictConfig, so this override is intentional.
-    configure_logging(_log_level())
+    configure_logging(_log_level(), pii_engine=_pii_engine())
     app = FastAPI(title="JobMatch AI", version=__version__, lifespan=lifespan)
     app.add_middleware(RequestIdMiddleware)
     install_error_handlers(app)
