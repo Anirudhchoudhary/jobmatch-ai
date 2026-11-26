@@ -15,8 +15,6 @@ from app.db.models import User
 
 DEV_USER_ID = UUID("00000000-0000-4000-8000-000000000001")
 
-_dev_user_ready = False
-
 
 async def get_session() -> AsyncIterator[AsyncSession]:
     async with get_sessionmaker()() as session:
@@ -25,13 +23,10 @@ async def get_session() -> AsyncIterator[AsyncSession]:
 
 async def get_current_user_id(session: Annotated[AsyncSession, Depends(get_session)]) -> UUID:
     """Dev identity; the auth phase replaces this function, routes keep its signature."""
-    global _dev_user_ready  # noqa: PLW0603
     if get_settings().env not in ("local", "ci"):
         raise AppError("auth_required", "Sign in to continue.", 401)
-    if not _dev_user_ready:
-        await session.execute(
-            insert(User).values(id=DEV_USER_ID).on_conflict_do_nothing(index_elements=["id"])
-        )
-        await session.commit()
-        _dev_user_ready = True
+    await session.execute(
+        insert(User).values(id=DEV_USER_ID).on_conflict_do_nothing(index_elements=["id"])
+    )
+    await session.commit()
     return DEV_USER_ID
