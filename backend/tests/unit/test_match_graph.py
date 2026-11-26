@@ -24,6 +24,7 @@ from app.schemas.match import (
     SkillDraft,
     SuggestionDraft,
 )
+from tests.fixtures.guardrails import ListRecorder
 
 RESUME_DOC, JD_DOC = uuid4(), uuid4()
 RESUME_CHUNK = RetrievedChunk(
@@ -272,3 +273,52 @@ async def test_skills_extraction_provider_error_is_fatal(repo: dict[str, Any]) -
     assert out[-1][0] == "error"
     assert out[-1][1]["code"] == "provider_unavailable"
     assert repo["saved"] == []
+
+
+async def test_downgrade_records_hallucination_block(repo: dict[str, Any]) -> None:
+    recorder = ListRecorder()
+    analyst = FakeAnalyst(REQUIREMENTS, kafka_quote="led a Kafka migration at Initech")
+    user_id = uuid4()
+    _ = [
+        ev
+        async for ev in analysis_events(
+            user_id=user_id, sessionmaker=fake_sessionmaker, analyst=analyst, recorder=recorder
+        )
+    ]
+    ((ctx, outcome),) = recorder.records
+    assert outcome.guardrail == "hallucination_block"
+    assert outcome.stage == "output" and outcome.action == "block"
+    assert outcome.reason == "evidence_downgraded:1"
+    assert ctx.user_id == user_id and ctx.texts == ()
+
+
+async def test_clean_analysis_records_nothing(repo: dict[str, Any]) -> None:
+    recorder = ListRecorder()
+    _ = [
+        ev
+        async for ev in analysis_events(
+            user_id=uuid4(),
+            sessionmaker=fake_sessionmaker,
+            analyst=FakeAnalyst(REQUIREMENTS),
+            recorder=recorder,
+        )
+    ]
+    assert recorder.records == []
+
+
+async def test_recorder_failure_does_not_break_analysis(repo: dict[str, Any]) -> None:
+    class Failing:
+        async def record(self, ctx: Any, outcome: Any) -> None:
+            raise RuntimeError("db down")
+
+    analyst = FakeAnalyst(REQUIREMENTS, kafka_quote="led a Kafka migration at Initech")
+    with capture_logs() as logs:
+        events = [
+            ev
+            async for ev in analysis_events(
+                user_id=uuid4(), sessionmaker=fake_sessionmaker, analyst=analyst, recorder=Failing()
+            )
+        ]
+    assert events[-1][0] == "done"
+    failed = next(e for e in logs if e["event"] == "guardrail_record_failed")
+    assert failed["error_type"] == "RuntimeError"

@@ -1,10 +1,22 @@
-from collections.abc import Mapping, Sequence
-from uuid import uuid4
+from collections.abc import AsyncIterator, Mapping, Sequence
+from contextlib import asynccontextmanager
+from typing import Any
+from uuid import UUID, uuid4
+
+import pytest
 
 from app.analysis.heuristic import HeuristicAnalyst
-from app.graphs.suggest import build_suggest_graph, initial_state, select_relevant_bullets
+from app.analysis.repo import LoadedDocuments
+from app.graphs import suggest as suggest_module
+from app.graphs.suggest import (
+    build_suggest_graph,
+    initial_state,
+    select_relevant_bullets,
+    suggest,
+)
 from app.retrieval.search import RetrievedChunk
-from app.schemas.match import Requirement, SkillMatch, SuggestionDraft
+from app.schemas.match import Requirement, SkillMatch, SuggestionDraft, SuggestionRequest
+from tests.fixtures.guardrails import ListRecorder
 
 
 def chunk(section: str, ordinal: int, text: str) -> RetrievedChunk:
@@ -112,3 +124,67 @@ async def test_suggestions_reject_missing_requirement_skill() -> None:
     skills = [match("Kafka"), match("Kubernetes", "missing")]
     final = await graph.ainvoke(initial_state([src], skills))
     assert (final["suggestions"], final["rejected"]) == ([], 1)
+
+
+@asynccontextmanager
+async def _session() -> AsyncIterator[object]:
+    yield object()
+
+
+def _fake_sessionmaker() -> Any:
+    return _session()
+
+
+async def _run_suggest(
+    monkeypatch: pytest.MonkeyPatch, drafts: list[SuggestionDraft], recorder: Any
+) -> UUID:
+    src = chunk("Experience", 0, "Built Kafka pipelines for the data team")
+    docs = LoadedDocuments(uuid4(), uuid4(), [src], [])
+    stored = {"skills": [match("Kafka").model_dump(mode="json")]}
+    analysis_id = uuid4()
+
+    async def load_documents(session: object, user_id: UUID) -> LoadedDocuments:
+        return docs
+
+    async def latest_analysis(session: object, *args: object) -> tuple[UUID, dict[str, Any]]:
+        return analysis_id, stored
+
+    monkeypatch.setattr(suggest_module, "load_documents", load_documents)
+    monkeypatch.setattr(suggest_module, "latest_analysis", latest_analysis)
+    user_id = uuid4()
+    await suggest(
+        user_id=user_id,
+        request=SuggestionRequest(),
+        sessionmaker=_fake_sessionmaker,
+        analyst=FakeAnalyst(drafts),
+        limit=5,
+        recorder=recorder,
+    )
+    return user_id
+
+
+BAD = SuggestionDraft(
+    source="r1",
+    original="Built Kafka pipelines",
+    rewritten="Built Kafka pipelines at Google cutting latency 40%",
+    rationale="Impact",
+    target_skills=["Kafka"],
+)
+
+
+async def test_rejected_suggestion_records_hallucination_block(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recorder = ListRecorder()
+    user_id = await _run_suggest(monkeypatch, [BAD], recorder)
+    ((ctx, outcome),) = recorder.records
+    assert outcome.guardrail == "hallucination_block"
+    assert outcome.stage == "output" and outcome.action == "block"
+    assert outcome.reason == "suggestions_rejected:1"
+    assert ctx.user_id == user_id
+
+
+async def test_no_rejection_records_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    recorder = ListRecorder()
+    await _run_suggest(monkeypatch, [], recorder)
+    assert recorder.records == []

@@ -4,10 +4,12 @@ import time
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import Protocol
+from uuid import UUID
 
 import structlog
 
 from app.core.logging import redact_pii
+from app.core.request_id import request_id_var
 from app.guardrails.base import (
     GuardContext,
     Guardrail,
@@ -157,4 +159,38 @@ class GuardrailPipeline:
             blocked=blocked,
             flagged=flagged,
             outcomes=tuple(outcomes),
+        )
+
+
+async def record_hallucination_block(
+    recorder: GuardrailRecorder, user_id: UUID, reason: str
+) -> None:
+    """Record that a grounding check dropped model output. Never raises: the analysis or
+    suggestions the user asked for must still be returned if the audit row cannot be written."""
+    outcome = GuardrailOutcome(
+        guardrail="hallucination_block",
+        provider="self",
+        stage="output",
+        action="block",
+        mode="enforce",
+        reason=reason,
+        latency_ms=0,
+        items=[],
+    )
+    log.info(
+        "guardrail_fired",
+        guardrail=outcome.guardrail,
+        provider=outcome.provider,
+        stage=outcome.stage,
+        action=outcome.action,
+        mode=outcome.mode,
+        reason=reason,
+        item_count=0,
+    )
+    ctx = GuardContext("output", (), request_id_var.get(), user_id)
+    try:
+        await recorder.record(ctx, outcome)
+    except Exception as exc:
+        log.warning(
+            "guardrail_record_failed", guardrail=outcome.guardrail, error_type=type(exc).__name__
         )

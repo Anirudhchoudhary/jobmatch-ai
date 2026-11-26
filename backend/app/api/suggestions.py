@@ -11,6 +11,7 @@ from app.core.settings import Settings, get_settings
 from app.db.engine import get_sessionmaker
 from app.graphs.suggest import suggest
 from app.guardrails.allowance import consume_or_refuse
+from app.guardrails.factory import Guardrails, get_guardrails
 from app.llm.providers import Providers, get_providers
 from app.schemas.match import BulletSuggestions, SuggestionRequest
 
@@ -23,6 +24,7 @@ async def create_suggestions(
     sessionmaker: Annotated[async_sessionmaker[AsyncSession], Depends(get_sessionmaker)],
     providers: Annotated[Providers, Depends(get_providers)],
     settings: Annotated[Settings, Depends(get_settings)],
+    guardrails: Annotated[Guardrails, Depends(get_guardrails)],
     body: SuggestionRequest | None = None,
 ) -> BulletSuggestions:
     await consume_or_refuse(sessionmaker, user_id, "suggestions", settings=settings)
@@ -32,4 +34,5 @@ async def create_suggestions(
         sessionmaker=sessionmaker,
         analyst=providers.analyst,
         limit=settings.suggest_max_bullets,
+        recorder=guardrails.upload.recorder,
     )

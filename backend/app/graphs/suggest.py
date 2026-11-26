@@ -22,6 +22,7 @@ from app.analysis.repo import get_analysis, latest_analysis, load_documents
 from app.core.errors import AppError
 from app.core.request_id import request_id_var
 from app.graphs.citations import label_context
+from app.guardrails.pipeline import GuardrailRecorder, NullRecorder, record_hallucination_block
 from app.retrieval.search import RetrievedChunk
 from app.schemas.match import (
     BulletSuggestion,
@@ -33,6 +34,7 @@ from app.schemas.match import (
 )
 
 log = structlog.get_logger(__name__)
+_NULL_RECORDER = NullRecorder()
 
 type SuggestGraph = CompiledStateGraph[SuggestState, None, SuggestState, SuggestState]
 
@@ -150,6 +152,7 @@ async def suggest(
     sessionmaker: async_sessionmaker[AsyncSession],
     analyst: Analyst,
     limit: int,
+    recorder: GuardrailRecorder = _NULL_RECORDER,
 ) -> BulletSuggestions:
     start = time.perf_counter()
     async with sessionmaker() as session:
@@ -171,6 +174,10 @@ async def suggest(
     final = await build_suggest_graph(analyst, limit=limit).ainvoke(
         initial_state(docs.resume, skills)
     )
+    if final["rejected"] > 0:
+        await record_hallucination_block(
+            recorder, user_id, f"suggestions_rejected:{final['rejected']}"
+        )
     log.info("suggest_completed", ms=_ms(start))
     return BulletSuggestions(
         analysis_id=analysis_id,

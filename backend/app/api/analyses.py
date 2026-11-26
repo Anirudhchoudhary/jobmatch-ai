@@ -13,6 +13,7 @@ from app.core.settings import Settings, get_settings
 from app.db.engine import get_sessionmaker
 from app.graphs.match import analysis_events
 from app.guardrails.allowance import consume_or_refuse
+from app.guardrails.factory import Guardrails, get_guardrails
 from app.llm.providers import Providers, get_providers
 
 router = APIRouter(prefix="/api/stream", tags=["analyses"])
@@ -24,6 +25,7 @@ async def stream_analysis(
     sessionmaker: Annotated[async_sessionmaker[AsyncSession], Depends(get_sessionmaker)],
     providers: Annotated[Providers, Depends(get_providers)],
     settings: Annotated[Settings, Depends(get_settings)],
+    guardrails: Annotated[Guardrails, Depends(get_guardrails)],
 ) -> StreamingResponse:
     async def spend() -> None:
         # Cached results are free: this runs only once the cache has missed.
@@ -35,5 +37,6 @@ async def stream_analysis(
             sessionmaker=sessionmaker,
             analyst=providers.analyst,
             before_fresh=spend,
+            recorder=guardrails.upload.recorder,
         )
     )
