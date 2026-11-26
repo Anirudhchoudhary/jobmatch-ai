@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: jobmatch
       POSTGRES_DB: jobmatch
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -27,7 +27,7 @@ services:
       # Dev-only, non-secret; overrides any DATABASE_URL from .env so the container reaches db.
       DATABASE_URL: postgresql+psycopg://jobmatch:jobmatch@db:5432/jobmatch
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     healthcheck:
       test:
         - CMD

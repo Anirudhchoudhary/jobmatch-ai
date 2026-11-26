@@ -8,6 +8,7 @@ import logging
 import re
 import sys
 from typing import Any
+from urllib.parse import unquote
 
 import structlog
 from structlog.typing import EventDict, Processor
@@ -28,7 +29,13 @@ def _phone_sub(match: re.Match[str]) -> str:
 
 
 def redact_pii(text: str) -> str:
-    """Replace emails and phone numbers in ``text`` with placeholders."""
+    """Replace emails and phone numbers in ``text`` with placeholders.
+
+    Percent-encoded text (e.g. URL query strings) is URL-decoded first so encoded
+    PII cannot bypass redaction; the returned text is then the decoded form.
+    """
+    if "%" in text:
+        text = unquote(text)
     return _PHONE_RE.sub(_phone_sub, _EMAIL_RE.sub("[EMAIL]", text))
 
 

@@ -20,8 +20,9 @@ def render_env(values: Mapping[str, str]) -> str:
 
 
 def write_env_file(path: Path, values: Mapping[str, str]) -> None:
-    tmp = path.with_name(f".{path.name}.tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    tmp = path.with_name(path.name + ".tmp")  # e.g. .env.tmp, covered by .gitignore's .env.*
+    tmp.unlink(missing_ok=True)  # a stale temp could carry looser permissions
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(render_env(values))

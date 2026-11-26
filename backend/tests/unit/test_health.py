@@ -1,11 +1,9 @@
 import time
-from collections.abc import Iterator
 
 import httpx
 import pytest
 
 from app.api.health import DbStatus, check_database, get_db_checker
-from app.core.settings import get_settings
 from app.db.engine import get_engine, make_engine
 from app.main import create_app
 
@@ -61,18 +59,7 @@ async def test_health_db_down_returns_503_fast(monkeypatch: pytest.MonkeyPatch) 
     assert "secretpw" not in r.text
 
 
-@pytest.fixture
-def clean_caches() -> Iterator[None]:
-    get_settings.cache_clear()
-    get_engine.cache_clear()
-    yield
-    get_settings.cache_clear()
-    get_engine.cache_clear()
-
-
-async def test_health_without_settings_returns_503_not_500(
-    monkeypatch: pytest.MonkeyPatch, clean_caches: None
-) -> None:
+async def test_health_without_settings_returns_503_not_500(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("DATABASE_URL", raising=False)
     async with _client() as c:
         r = await c.get("/health")
@@ -86,7 +73,7 @@ async def test_health_without_settings_returns_503_not_500(
 
 
 async def test_health_production_path_unreachable_db_within_bound(
-    monkeypatch: pytest.MonkeyPatch, clean_caches: None
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://u:secretpw@127.0.0.1:1/db")
     start = time.monotonic()

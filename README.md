@@ -6,7 +6,7 @@ JobMatch AI is a backend that matches resumes to jobs using LLMs and pgvector si
 
 - Docker (with Compose v2)
 - [uv](https://docs.astral.sh/uv/)
-- AWS CLI (only needed for `make env`)
+- AWS credentials (only needed for `make env`; it uses boto3, so e.g. `aws sso login` or `aws login` works; the AWS CLI binary itself is not required)
 
 ## Quickstart
 
@@ -22,7 +22,7 @@ A healthy response looks like `{"status":"ok","version":"0.1.0","db":"ok","pgvec
 
 ## Secrets
 
-Every secret value lives in AWS Secrets Manager (`jobmatch/dev`, `jobmatch/prod`, `jobmatch/ci`). Nothing secret is committed or stored in GitHub. `make env` generates a git-ignored `.env` (mode 0600) from Secrets Manager; never hand-edit it. The only credentials in the repo are the non-secret, dev-only local Postgres ones in `docker-compose.yml`.
+Every secret value lives in AWS Secrets Manager (`jobmatch/dev`, `jobmatch/prod`, `jobmatch/ci`). Nothing secret is committed or stored in GitHub. `make env` generates a git-ignored `.env` (mode 0600) from Secrets Manager; never hand-edit it. The Makefile and `docker-compose.yml` point local commands and the api container at the local Docker Postgres regardless of the `DATABASE_URL` in the generated `.env`. The only credentials in the repo are the non-secret, dev-only local Postgres ones in `docker-compose.yml`.
 
 ## Development
 
@@ -30,4 +30,4 @@ Every secret value lives in AWS Secrets Manager (`jobmatch/dev`, `jobmatch/prod`
 make lint typecheck test test-integration
 ```
 
-Integration tests need the Compose Postgres (`make up`).
+Integration tests need the Compose Postgres (`make up`). They always use the local Compose database; set `JOBMATCH_ALLOW_NONLOCAL_DB=1` to opt out deliberately.

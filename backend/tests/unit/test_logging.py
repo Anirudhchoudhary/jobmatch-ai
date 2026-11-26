@@ -67,3 +67,39 @@ def test_uvicorn_loggers_are_redacted(capsys: pytest.CaptureFixture[str]) -> Non
     out = capsys.readouterr().out
     assert "a@b.io" not in out
     assert "[EMAIL]" in out
+
+
+def test_redacts_percent_encoded_email() -> None:
+    out = redact_pii("GET /health?email=jane%40example.com")
+    assert "example.com" not in out
+    assert "[EMAIL]" in out
+
+
+def test_redacts_percent_encoded_phone() -> None:
+    out = redact_pii("GET /x?phone=%2B1%20415%20555%200132")
+    assert "415" not in out
+    assert "[PHONE]" in out
+
+
+def test_percent_without_pii_is_unchanged() -> None:
+    assert redact_pii("progress 50% done") == "progress 50% done"
+
+
+def test_uvicorn_access_percent_encoded_pii_end_to_end(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    configure_logging()
+    logging.getLogger("uvicorn.access").info(
+        '%s - "%s %s HTTP/%s" %d',
+        "127.0.0.1:5000",
+        "GET",
+        "/health?email=jane%40example.com&phone=%2B1%20415%20555%200132",
+        "1.1",
+        200,
+    )
+    out = capsys.readouterr().out
+    assert "jane" not in out
+    assert "example.com" not in out
+    assert "415" not in out
+    assert "[EMAIL]" in out
+    assert "[PHONE]" in out

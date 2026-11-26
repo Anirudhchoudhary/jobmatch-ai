@@ -1,10 +1,6 @@
-import os
-from collections.abc import AsyncIterator, Iterator
-from pathlib import Path
+from collections.abc import AsyncIterator
 
 import pytest
-from alembic import command
-from alembic.config import Config
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -12,22 +8,6 @@ from app.core.settings import get_settings
 from app.db.engine import make_engine
 
 pytestmark = pytest.mark.integration
-
-LOCAL_DB_URL = "postgresql+psycopg://jobmatch:jobmatch@localhost:5432/jobmatch"
-BACKEND_DIR = Path(__file__).resolve().parents[2]
-
-
-@pytest.fixture(scope="session", autouse=True)
-def migrated() -> Iterator[None]:
-    """Run `alembic upgrade head` against the Compose DB (non-secret local default URL)."""
-    previous = os.environ.get("DATABASE_URL")
-    os.environ.setdefault("DATABASE_URL", LOCAL_DB_URL)
-    get_settings.cache_clear()
-    command.upgrade(Config(str(BACKEND_DIR / "alembic.ini")), "head")
-    yield
-    get_settings.cache_clear()
-    if previous is None:
-        os.environ.pop("DATABASE_URL", None)
 
 
 @pytest.fixture

@@ -9,7 +9,7 @@ export DATABASE_URL
 .PHONY: install lint fmt typecheck test test-integration env up down migrate db-shell setup run logs
 
 install:
-	cd backend && $(UV) sync
+	cd backend && $(UV) sync --locked
 
 lint:
 	$(RUN) ruff check . $(RUN2) ruff format --check .

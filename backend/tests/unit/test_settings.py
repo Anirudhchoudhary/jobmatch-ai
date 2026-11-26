@@ -1,22 +1,8 @@
-from pathlib import Path
-
 import pytest
 from pydantic import ValidationError
 
 from app.core import settings as settings_module
 from app.core.settings import get_settings
-
-
-@pytest.fixture(autouse=True)
-def _clean(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    for key in ("DATABASE_URL", "SECRETS_SOURCE", "SECRET_ID", "AWS_REGION"):
-        monkeypatch.delenv(key, raising=False)
-    empty = tmp_path / ".env"
-    empty.write_text("")
-    monkeypatch.setattr(settings_module, "ENV_FILE", empty)
-    get_settings.cache_clear()
-    yield  # type: ignore[misc]
-    get_settings.cache_clear()
 
 
 def test_settings_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
