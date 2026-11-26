@@ -51,7 +51,13 @@ def get_db_checker() -> DbChecker:
     """Dependency: resolves the engine and settings lazily, so nothing connects at startup."""
 
     async def checker() -> DbStatus:
-        return await check_database(get_engine(), get_settings().db_connect_timeout_s + 1)
+        try:
+            settings = get_settings()
+            engine = get_engine()
+        except Exception as exc:  # noqa: BLE001 - config/secret failure means degraded
+            log.warning("health_config_failed", error_type=type(exc).__name__)
+            return DbStatus(db="error", pgvector="unknown")
+        return await check_database(engine, settings.db_connect_timeout_s)
 
     return checker
 
