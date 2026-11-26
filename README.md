@@ -165,7 +165,7 @@ Every structured model call asks for schema-constrained JSON. If the output does
 
 ## Phase 4: guardrails
 
-Guards run at three stages. Each one runs in `enforce` mode (it acts on the text) or `monitor` mode (it only records an event; text is never changed and nothing is blocked), or is `off`. Offline (`LLM_PROVIDER=fake`) only the code-based guards are built; the Claude guards need `LLM_PROVIDER=anthropic`.
+Guards run at three stages. Each one runs in `enforce` mode (it acts on the text) or `monitor` mode (it only records an event; text is never changed and nothing is blocked), or is `off`. Offline (`LLM_PROVIDER=fake`) no Claude guard is built; the Claude guards need `LLM_PROVIDER=anthropic`. The Bedrock guard is built whenever `GUARD_BEDROCK` is on, regardless of `LLM_PROVIDER`.
 
 | Stage | Guard | Where it runs | Default | Setting |
 | --- | --- | --- | --- | --- |
@@ -173,7 +173,7 @@ Guards run at three stages. Each one runs in `enforce` mode (it acts on the text
 | upload, chat input | `injection_classifier` (Claude Haiku) | self, Claude only | enforce | `GUARD_INJECTION_CLASSIFIER` |
 | upload, chat input | `bedrock_guardrails` (prompt attack and content filters) | Bedrock | off | `GUARD_BEDROCK` |
 | chat input | `topic` (Claude Haiku, off-topic questions) | self, Claude only | enforce | `GUARD_TOPIC` |
-| chat input | `pii` (redacts email, phone, address before the model sees them) | self | enforce | `GUARD_PII` |
+| chat input | `pii` (runs first: redacts email, phone and street addresses before the classifiers and the model see the question; bare city names are kept) | self | enforce | `GUARD_PII` |
 | chat output | `groundedness` (per claim) | self (lexical offline, Claude judge live) | enforce | `GUARD_GROUNDEDNESS` |
 | analysis, suggestions | `hallucination_block` (evidence or rewrite failed grounding) | self | always on | none |
 
@@ -217,7 +217,7 @@ When evidence validation downgrades at least one skill in a fresh analysis, one 
 
 ### Allowances
 
-Per user, per UTC day: 5 analyses, 10 uploads, 30 chats and 10 suggestions (`ALLOWANCE_ANALYSES`, `ALLOWANCE_UPLOADS`, `ALLOWANCE_CHATS`, `ALLOWANCE_SUGGESTIONS`), plus a burst limit of 10 requests per user per minute across all kinds (`BURST_PER_MINUTE`). Counters are atomic in Postgres. Cached analyses are free. Both refusals are HTTP 429 with the usual error envelope:
+Per user, per UTC day: 5 analyses, 10 uploads, 30 chats and 10 suggestions (`ALLOWANCE_ANALYSES`, `ALLOWANCE_UPLOADS`, `ALLOWANCE_CHATS`, `ALLOWANCE_SUGGESTIONS`), plus a burst limit of 10 requests per user per minute across all kinds (`BURST_PER_MINUTE`). Counters are atomic in Postgres. Cached analyses are free, and `/api/samples` is not charged. A refusal is HTTP 429 with the usual error envelope, except on the analyses stream, which is already an HTTP 200 SSE response: there the refusal arrives as an SSE `error` event with the same code and message. Setting a limit to 0 refuses every request of that kind.
 
 - `quota_exceeded`: "You've used today's {limit} {kind}. It resets at midnight UTC."
 - `rate_limited`: "Too many requests; wait a minute and try again."
