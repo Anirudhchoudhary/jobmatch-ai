@@ -7,6 +7,7 @@ import pytest
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
+from app.analysis.heuristic import HeuristicAnalyst
 from app.api.deps import get_current_user_id
 from app.core.settings import get_settings
 from app.db.engine import get_sessionmaker, make_engine
@@ -41,7 +42,11 @@ async def test_samples_endpoint_ingests_both(engine: AsyncEngine, tmp_path: Path
     app.dependency_overrides[get_sessionmaker] = lambda: sm
     app.dependency_overrides[get_blob_store] = lambda: LocalBlobStore(tmp_path)
     app.dependency_overrides[get_providers] = lambda: Providers(
-        HashEmbedder(), NoopReranker(), make_chat_model(get_settings()), ladder()
+        HashEmbedder(),
+        NoopReranker(),
+        make_chat_model(get_settings()),
+        ladder(),
+        HeuristicAnalyst(),
     )
     try:
         async with httpx.AsyncClient(

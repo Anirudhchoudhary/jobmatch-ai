@@ -9,6 +9,7 @@ from langchain_core.messages import AIMessage
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from app.analysis.heuristic import HeuristicAnalyst
 from app.api.deps import get_current_user_id
 from app.core.settings import get_settings
 from app.db.engine import get_sessionmaker, make_engine
@@ -83,6 +84,7 @@ async def env(engine: AsyncEngine, tmp_path: Path) -> AsyncIterator[Env]:
         NoopReranker(),
         GenericFakeChatModel(messages=iter([AIMessage("Kafka [r1]")])),
         ladder(),
+        HeuristicAnalyst(),
     )
     app.dependency_overrides[get_current_user_id] = lambda: user_id
     app.dependency_overrides[get_sessionmaker] = lambda: sm
@@ -143,7 +145,7 @@ async def test_chat_ignores_documents_from_another_embedder(env: Env) -> None:
 
     old = env.holder["providers"]  # type: ignore[attr-defined]
     env.holder["providers"] = Providers(
-        OtherEmbedder(), old.reranker, old.chat_model, old.structured_models
+        OtherEmbedder(), old.reranker, old.chat_model, old.structured_models, old.analyst
     )  # type: ignore[attr-defined]
     events = await env.post("/api/stream/chat", {"question": "What Python work has she done?"})
     name, done = events[-1]

@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field, ValidationError
 class ScriptedStructuredModel(BaseChatModel):
     """Pops one scripted item per structured call: a dict (JSON payload) or an Exception."""
 
+    model: str = "scripted"
     script: list[Any] = Field(default_factory=list)
     calls: list[list[BaseMessage]] = Field(default_factory=list)
 

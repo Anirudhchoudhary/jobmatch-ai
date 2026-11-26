@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import create_engine, text
 
+from app.analysis.heuristic import HeuristicAnalyst
 from app.core.settings import get_settings
 from app.llm.chat import make_chat_model
 from app.llm.embeddings import HashEmbedder
@@ -26,7 +27,13 @@ def _counts() -> tuple[int, int]:
 
 def test_retrieval_eval_offline_runs(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     out = tmp_path / "baseline.json"
-    providers = Providers(HashEmbedder(), NoopReranker(), make_chat_model(get_settings()), ladder())
+    providers = Providers(
+        HashEmbedder(),
+        NoopReranker(),
+        make_chat_model(get_settings()),
+        ladder(),
+        HeuristicAnalyst(),
+    )
     before = _counts()
     rc = retrieval_eval.main(["--out", str(out)], providers=providers)
     assert rc == 0
