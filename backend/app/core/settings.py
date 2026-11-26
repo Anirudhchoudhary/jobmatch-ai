@@ -15,7 +15,9 @@ ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
 class _Bootstrap(BaseSettings):
     """Reads only the fields needed to decide where the real settings come from."""
 
-    model_config = SettingsConfigDict(case_sensitive=False, extra="ignore")
+    model_config = SettingsConfigDict(
+        case_sensitive=False, extra="ignore", hide_input_in_errors=True
+    )
 
     aws_region: str = "us-west-2"
     secrets_source: Literal["env", "aws"] = "env"

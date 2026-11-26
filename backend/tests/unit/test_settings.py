@@ -44,3 +44,19 @@ def test_settings_from_aws(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_settings_missing_database_url() -> None:
     with pytest.raises(ValidationError):
         get_settings()
+
+
+def test_validation_error_does_not_echo_secret_values(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SECRETS_SOURCE", "aws")
+    monkeypatch.setattr(
+        settings_module,
+        "load_secret",
+        lambda secret_id, *, region: {
+            "OTHER_KEY": "fake-value-do-not-leak",
+            "DB_CONNECT_TIMEOUT_S": "fake-timeout-do-not-leak",
+        },
+    )
+    with pytest.raises(ValidationError) as exc:
+        get_settings()
+    assert "fake-value-do-not-leak" not in str(exc.value)
+    assert "fake-timeout-do-not-leak" not in str(exc.value)
