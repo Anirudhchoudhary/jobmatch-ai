@@ -11,7 +11,7 @@ from app.api.deps import get_current_user_id
 from app.api.sse import sse_response
 from app.core.settings import Settings, get_settings
 from app.db.engine import get_sessionmaker
-from app.guardrails.allowance import allowance
+from app.guardrails.allowance import consume_or_refuse
 from app.ingestion.blobs import BlobStore, get_blob_store
 from app.ingestion.service import ingest_document
 from app.llm.providers import Providers, get_providers
@@ -20,7 +20,7 @@ from app.schemas.documents import DocumentRequest
 router = APIRouter(prefix="/api/stream", tags=["documents"])
 
 
-@router.post("/documents", dependencies=[Depends(allowance("uploads"))])
+@router.post("/documents")
 async def stream_documents(
     body: DocumentRequest,
     user_id: Annotated[UUID, Depends(get_current_user_id)],
@@ -29,6 +29,7 @@ async def stream_documents(
     sessionmaker: Annotated[async_sessionmaker[AsyncSession], Depends(get_sessionmaker)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> StreamingResponse:
+    await consume_or_refuse(sessionmaker, user_id, "uploads", settings=settings)
     return sse_response(
         ingest_document(
             user_id=user_id,

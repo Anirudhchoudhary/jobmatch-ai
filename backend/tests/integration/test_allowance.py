@@ -1,5 +1,5 @@
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -22,6 +22,7 @@ from app.llm.embeddings import HashEmbedder
 from app.llm.providers import Providers, get_providers
 from app.llm.rerank import NoopReranker
 from app.main import create_app
+from tests.fixtures.documents import JD
 from tests.fixtures.sse import parse_sse
 from tests.fixtures.structured import ladder
 
@@ -79,8 +80,8 @@ def _settings(monkeypatch: pytest.MonkeyPatch, **env: int) -> None:
 
 
 @pytest.fixture(autouse=True)
-def _reset_settings() -> AsyncIterator[None]:
-    yield  # type: ignore[misc]
+def _reset_settings() -> Iterator[None]:
+    yield
     get_settings.cache_clear()
 
 
@@ -173,3 +174,34 @@ async def test_cached_analysis_is_free(
     events = parse_sse(second.text)
     assert events[-1][0] == "done"
     assert events[-1][1]["cached"] is True
+
+
+async def test_invalid_request_is_not_charged(
+    client: httpx.AsyncClient, engine: AsyncEngine, user_id: UUID
+) -> None:
+    resp = await client.post("/api/stream/chat", json={"question": "   "})
+    assert resp.status_code == 422
+    async with async_sessionmaker(engine)() as s:
+        n = (
+            await s.execute(
+                text("SELECT count(*) FROM usage_counters WHERE user_id = :i"), {"i": user_id}
+            )
+        ).scalar_one()
+    assert n == 0
+
+
+async def test_fresh_analysis_over_limit_is_an_sse_error(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _settings(monkeypatch, allowance_analyses=1)
+    assert (await client.post("/api/samples")).status_code == 200
+    first = await client.post("/api/stream/analyses")
+    assert parse_sse(first.text)[-1][0] == "done"
+    changed = await client.post(
+        "/api/stream/documents", json={"doc_type": "jd", "text": JD + "\n- Experience with Rust."}
+    )
+    assert changed.status_code == 200
+    second = await client.post("/api/stream/analyses")
+    name, data = parse_sse(second.text)[-1]
+    assert name == "error"
+    assert data["code"] == "quota_exceeded"

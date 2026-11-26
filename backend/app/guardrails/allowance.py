@@ -1,23 +1,27 @@
-"""Per-user daily allowance and per-minute burst limit, enforced by atomic Postgres counters."""
+"""Per-user daily allowance and per-minute burst limit, enforced by atomic Postgres counters.
 
-from collections.abc import Awaitable, Callable
+Handlers call ``consume_or_refuse`` after request validation, so a malformed request (422) is
+never charged. A request that is accepted and later fails (ingestion or provider errors) still
+consumes its allowance.
+"""
+
 from datetime import UTC, datetime
-from typing import Annotated, Literal
+from typing import Literal
 from uuid import UUID
 
-from fastapi import Depends
+import structlog
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.api.deps import get_current_user_id
 from app.core.errors import AppError
 from app.core.request_id import request_id_var
-from app.core.settings import Settings, get_settings
-from app.db.engine import get_sessionmaker
+from app.core.settings import Settings
 from app.guardrails.base import GuardContext, GuardrailOutcome
 from app.guardrails.recorder import DbRecorder
 
 Kind = Literal["analyses", "uploads", "chats", "suggestions"]
+
+log = structlog.get_logger(__name__)
 
 # One statement per window: bump the count unless the limit is already reached.
 # No row returned means the window is full.
@@ -74,7 +78,13 @@ async def consume(
     moment = (now or datetime.now(UTC)).astimezone(UTC)
     minute = moment.replace(second=0, microsecond=0)
     day = moment.replace(hour=0, minute=0, second=0, microsecond=0)
-    limit: int = getattr(settings, f"allowance_{kind}")
+    limits: dict[Kind, int] = {
+        "analyses": settings.allowance_analyses,
+        "uploads": settings.allowance_uploads,
+        "chats": settings.allowance_chats,
+        "suggestions": settings.allowance_suggestions,
+    }
+    limit = limits[kind]
     if not await _bump(session, user_id, "burst", minute, settings.burst_per_minute):
         await session.rollback()
         raise RateLimited
@@ -109,18 +119,9 @@ async def consume_or_refuse(
         ctx = GuardContext(
             stage="chat_input", texts=(), request_id=request_id_var.get(), user_id=user_id
         )
-        await DbRecorder(sessionmaker).record(ctx, outcome)
+        try:
+            await DbRecorder(sessionmaker).record(ctx, outcome)
+        except Exception as record_exc:  # noqa: BLE001
+            # The user must still get the 429 even if the audit row cannot be written.
+            log.error("guardrail_record_failed", error_type=type(record_exc).__name__)
         raise
-
-
-def allowance(kind: Kind) -> Callable[..., Awaitable[None]]:
-    """FastAPI dependency that spends one ``kind`` request or answers 429."""
-
-    async def spend(
-        user_id: Annotated[UUID, Depends(get_current_user_id)],
-        sessionmaker: Annotated[async_sessionmaker[AsyncSession], Depends(get_sessionmaker)],
-        settings: Annotated[Settings, Depends(get_settings)],
-    ) -> None:
-        await consume_or_refuse(sessionmaker, user_id, kind, settings=settings)
-
-    return spend
