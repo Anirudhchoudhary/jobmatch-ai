@@ -95,3 +95,47 @@ async def test_db_recorder_survives_cancel(engine: AsyncEngine) -> None:
         async with sm() as s:
             await s.execute(text("DELETE FROM guardrail_events WHERE request_id = :r"), {"r": rid})
             await s.commit()
+
+
+async def test_item_count_falls_back_to_text_count(engine: AsyncEngine) -> None:
+    sm = async_sessionmaker(engine, expire_on_commit=False)
+    rid = "req-itemcount"
+    ctx = GuardContext(stage="chat_input", texts=("a", "b", "c"), request_id=rid, user_id=None)
+    outcome = _outcome().model_copy(update={"items": []})
+    try:
+        await DbRecorder(sm).record(ctx, outcome)
+        async with sm() as s:
+            n = (
+                await s.execute(
+                    text("SELECT item_count FROM guardrail_events WHERE request_id = :r"),
+                    {"r": rid},
+                )
+            ).scalar_one()
+        assert n == 3
+    finally:
+        async with sm() as s:
+            await s.execute(text("DELETE FROM guardrail_events WHERE request_id = :r"), {"r": rid})
+            await s.commit()
+
+
+async def test_db_recorder_times_out_without_raising(monkeypatch: pytest.MonkeyPatch) -> None:
+    from structlog.testing import capture_logs
+
+    from app.guardrails import recorder as recorder_module
+
+    class Hanging:
+        def __call__(self) -> "Hanging":
+            return self
+
+        async def __aenter__(self) -> "Hanging":
+            await anyio.sleep(30)
+            return self
+
+        async def __aexit__(self, *exc: object) -> None:
+            return None
+
+    monkeypatch.setattr(recorder_module, "_WRITE_TIMEOUT_S", 0.1)
+    ctx = GuardContext(stage="chat_input", texts=("x",), request_id="req-timeout", user_id=None)
+    with capture_logs() as logs:
+        await DbRecorder(Hanging()).record(ctx, _outcome())  # type: ignore[arg-type]
+    assert any(e["event"] == "guardrail_record_timeout" for e in logs)
