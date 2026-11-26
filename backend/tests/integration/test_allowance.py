@@ -124,6 +124,24 @@ async def test_burst_limit(client: httpx.AsyncClient, monkeypatch: pytest.Monkey
     assert second.json()["error"]["code"] == "rate_limited"
 
 
+async def test_zero_chat_allowance_refuses_first_request(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _settings(monkeypatch, allowance_chats=0)
+    first = await _chat(client)
+    assert first.status_code == 429
+    assert first.json()["error"]["code"] == "quota_exceeded"
+
+
+async def test_zero_burst_refuses_first_request(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _settings(monkeypatch, burst_per_minute=0)
+    first = await _chat(client)
+    assert first.status_code == 429
+    assert first.json()["error"]["code"] == "rate_limited"
+
+
 async def test_day_rollover(engine: AsyncEngine, user_id: UUID) -> None:
     settings = Settings(allowance_chats=1, burst_per_minute=100)  # type: ignore[call-arg]
     sm = async_sessionmaker(engine, expire_on_commit=False)

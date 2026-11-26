@@ -9,7 +9,6 @@ from datetime import UTC, datetime
 from typing import Literal
 from uuid import UUID
 
-import structlog
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -17,11 +16,10 @@ from app.core.errors import AppError
 from app.core.request_id import request_id_var
 from app.core.settings import Settings
 from app.guardrails.base import GuardContext, GuardrailOutcome
+from app.guardrails.pipeline import record_outcome
 from app.guardrails.recorder import DbRecorder
 
 Kind = Literal["analyses", "uploads", "chats", "suggestions"]
-
-log = structlog.get_logger(__name__)
 
 # One statement per window: bump the count unless the limit is already reached.
 # No row returned means the window is full.
@@ -85,10 +83,13 @@ async def consume(
         "suggestions": settings.allowance_suggestions,
     }
     limit = limits[kind]
-    if not await _bump(session, user_id, "burst", minute, settings.burst_per_minute):
+    # A zero limit means "none allowed"; the INSERT path of _bump would admit the first request.
+    if settings.burst_per_minute <= 0 or not await _bump(
+        session, user_id, "burst", minute, settings.burst_per_minute
+    ):
         await session.rollback()
         raise RateLimited
-    if not await _bump(session, user_id, kind, day, limit):
+    if limit <= 0 or not await _bump(session, user_id, kind, day, limit):
         await session.rollback()
         raise QuotaExceeded(kind, limit)
     await session.commit()
@@ -119,9 +120,5 @@ async def consume_or_refuse(
         ctx = GuardContext(
             stage="chat_input", texts=(), request_id=request_id_var.get(), user_id=user_id
         )
-        try:
-            await DbRecorder(sessionmaker).record(ctx, outcome)
-        except Exception as record_exc:  # noqa: BLE001
-            # The user must still get the 429 even if the audit row cannot be written.
-            log.error("guardrail_record_failed", error_type=type(record_exc).__name__)
+        await record_outcome(DbRecorder(sessionmaker), ctx, outcome)
         raise
