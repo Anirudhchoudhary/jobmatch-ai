@@ -27,7 +27,7 @@ from app.guardrails.pipeline import GuardrailPipeline, GuardStep, NullRecorder
 from app.llm.prompts import load_prompt
 from app.retrieval.search import RetrievedChunk
 from app.schemas.chat import ChatDone, ChatProgress, TokenEvent, Verdict
-from tests.fixtures.guardrails import ListRecorder, StaticGuard
+from tests.fixtures.guardrails import ListRecorder, RaisingGuard, StaticGuard
 from tests.fixtures.structured import ScriptedStructuredModel
 
 CHUNK = RetrievedChunk(uuid4(), uuid4(), "resume", "Experience", 0, "Alex built Kafka.", 0.9)
@@ -434,9 +434,59 @@ async def test_email_never_in_event_reason() -> None:
         )
     done = events[-1][1]
     assert isinstance(done, ChatDone)
-    assert [o.reason for _, o in rec.records] == ["pattern:ignore_instructions", "pii:EMAIL"]
-    assert [g.reason for g in done.guardrails] == ["pattern:ignore_instructions", "pii:EMAIL"]
+    assert [o.reason for _, o in rec.records] == ["pattern:ignore_instructions"]
+    assert [g.reason for g in done.guardrails] == ["pattern:ignore_instructions"]
     for _, outcome in rec.records:
         assert "@" not in outcome.model_dump_json()
     assert "a@b.co" not in str(logs)
     assert "a@b.co" not in done.model_dump_json()
+
+
+def _input_only(guard: StaticGuard) -> Guardrails:
+    return Guardrails(
+        upload=GuardrailPipeline("upload", [], NullRecorder()),
+        chat_input=GuardrailPipeline("chat_input", [GuardStep(guard, "enforce")], NullRecorder()),
+        output=GuardrailPipeline("output", [], NullRecorder()),
+    )
+
+
+async def test_bedrock_prompt_attack_uses_injection_text() -> None:
+    guard = StaticGuard(
+        GuardrailResult("bedrock_guardrails", "bedrock", "block", "bedrock:prompt_attack", 0, (0,))
+    )
+    events = await run(
+        FakeRetriever([CHUNK]), ExplodingModel(messages=iter([])), _input_only(guard)
+    )
+    done = events[-1][1]
+    assert isinstance(done, ChatDone)
+    assert done.answer == INJECTION_TEXT and done.blocked is True
+
+
+async def test_bedrock_pii_blocked_uses_generic_refusal() -> None:
+    guard = StaticGuard(
+        GuardrailResult("bedrock_guardrails", "bedrock", "block", "bedrock:pii_blocked", 0, (0,))
+    )
+    events = await run(
+        FakeRetriever([CHUNK]), ExplodingModel(messages=iter([])), _input_only(guard)
+    )
+    done = events[-1][1]
+    assert isinstance(done, ChatDone)
+    assert done.answer == REFUSAL_TEXT and done.blocked is True
+
+
+async def test_groundedness_guard_error_fails_open_with_verdict() -> None:
+    bad = RaisingGuard()
+    bad.name = "groundedness"
+    guardrails = Guardrails(
+        upload=GuardrailPipeline("upload", [], NullRecorder()),
+        chat_input=GuardrailPipeline("chat_input", [], NullRecorder()),
+        output=GuardrailPipeline("output", [GuardStep(bad, "enforce")], NullRecorder()),
+    )
+    events = await run(FakeRetriever([CHUNK]), fake_model("Alex used Kafka [r1]."), guardrails)
+    assert [n for n, _ in events][-2:] == ["verdict", "done"]
+    assert events[-2][1] == Verdict(
+        grounded=True, action="allow", unsupported_claims=[], mode="enforce"
+    )
+    done = events[-1][1]
+    assert isinstance(done, ChatDone)
+    assert [g.action for g in done.guardrails] == ["error"]

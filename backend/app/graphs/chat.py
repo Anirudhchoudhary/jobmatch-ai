@@ -4,8 +4,7 @@ START -> input_guards -> (refuse | retrieve -> rerank -> (refuse | generate -> o
 -> finalize.
 
 Nodes are small and talk to the client only through ``get_stream_writer()`` custom events
-(``progress`` and ``token``), so later phases can insert nodes (e.g. guardrails) between
-them without touching the API layer.
+(``progress`` and ``token``); ``chat_events`` maps them, plus a final ``verdict``, to SSE.
 """
 
 import time
@@ -56,17 +55,21 @@ class ChatState(TypedDict):
     verdict: Verdict | None
 
 
-_BLOCK_TEXT = {
-    "topic": OFF_TOPIC_TEXT,
-    "injection_rules": INJECTION_TEXT,
-    "injection_classifier": INJECTION_TEXT,
-    "bedrock_guardrails": INJECTION_TEXT,
-}
+def _block_text(outcome: GuardrailOutcome | None) -> str:
+    if outcome is None:
+        return REFUSAL_TEXT
+    if outcome.guardrail == "topic":
+        return OFF_TOPIC_TEXT
+    if outcome.guardrail in ("injection_rules", "injection_classifier"):
+        return INJECTION_TEXT
+    if outcome.guardrail == "bedrock_guardrails" and outcome.reason == "bedrock:prompt_attack":
+        return INJECTION_TEXT
+    return REFUSAL_TEXT
 
 
 def _verdict(outcomes: Sequence[GuardrailOutcome], answer: str) -> Verdict:
     """Verdict from the output-stage outcomes; no outcome means no output guard ran."""
-    out = next((o for o in outcomes if o.stage == "output"), None)
+    out = next((o for o in outcomes if o.guardrail == "groundedness"), None)
     if out is None:
         return Verdict(grounded=True, action="allow", unsupported_claims=[], mode=None)
     if out.action == "flag" and out.mode == "enforce":
@@ -120,7 +123,7 @@ def build_chat_graph(
             "question": result.texts[0],
             "guard_outcomes": list(result.outcomes),
         }
-        if result.blocked or 0 in result.blocked_items:
+        if result.blocked:
             blocking = [o for o in result.outcomes if o.action == "block" and o.mode == "enforce"]
             update["blocked_by"] = blocking[-1].guardrail if blocking else "unknown"
         return update
@@ -152,8 +155,10 @@ def build_chat_graph(
         return "generate"
 
     async def refuse(state: ChatState) -> dict[str, Any]:
-        blocked_by = state["blocked_by"]
-        text = REFUSAL_TEXT if blocked_by is None else _BLOCK_TEXT.get(blocked_by, REFUSAL_TEXT)
+        blocking = [
+            o for o in state["guard_outcomes"] if o.action == "block" and o.mode == "enforce"
+        ]
+        text = _block_text(blocking[-1] if blocking and state["blocked_by"] else None)
         get_stream_writer()({"type": "token", "text": text})
         return {"answer": text, "refused": True}
 

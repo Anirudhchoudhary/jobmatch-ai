@@ -144,6 +144,9 @@ class GuardrailPipeline:
             elif result.action == "block":
                 if result.items:
                     blocked_items.update(result.items)
+                    if blocked_items.issuperset(range(len(ctx.texts))):
+                        blocked = True
+                        break
                 else:
                     blocked = True
                     break

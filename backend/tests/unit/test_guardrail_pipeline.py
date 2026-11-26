@@ -92,6 +92,30 @@ async def test_item_scoped_block() -> None:
     assert len(later.calls) == 1
 
 
+async def test_item_block_covering_all_items_stops_pipeline() -> None:
+    later = StaticGuard(_res("allow", "later"))
+    pipe = GuardrailPipeline(
+        "chat_input",
+        [GuardStep(StaticGuard(_res("block", items=(0,))), "enforce"), GuardStep(later, "enforce")],
+        ListRecorder(),
+    )
+    out = await pipe.run(_ctx("only"))
+    assert out.blocked is True
+    assert later.calls == []
+
+
+async def test_monitor_item_block_covering_all_items_does_not_stop() -> None:
+    later = StaticGuard(_res("allow", "later"))
+    pipe = GuardrailPipeline(
+        "chat_input",
+        [GuardStep(StaticGuard(_res("block", items=(0,))), "monitor"), GuardStep(later, "enforce")],
+        ListRecorder(),
+    )
+    out = await pipe.run(_ctx("only"))
+    assert out.blocked is False
+    assert len(later.calls) == 1
+
+
 async def test_guard_exception_is_recorded_and_allows() -> None:
     rec = ListRecorder()
     later = StaticGuard(_res("allow", "later"))
