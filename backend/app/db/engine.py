@@ -16,6 +16,7 @@ def make_engine(url: str, *, connect_timeout_s: float = 3.0) -> AsyncEngine:
     return create_async_engine(
         url,
         pool_pre_ping=True,
+        hide_parameters=True,  # parameters can contain document text
         connect_args={"connect_timeout": max(1, round(connect_timeout_s))},
     )
 

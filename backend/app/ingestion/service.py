@@ -8,12 +8,13 @@ from collections.abc import AsyncIterator
 from typing import Literal
 from uuid import UUID
 
+import anyio
 import structlog
 from pydantic import BaseModel
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.core.errors import AppError
+from app.core.errors import AppError, ProviderError
 from app.core.settings import Settings
 from app.db.models import Chunk, Document
 from app.ingestion.blobs import BlobStore, assert_owned_key
@@ -33,17 +34,19 @@ def _progress(step: Step, status: Literal["started", "done"]) -> IngestEvent:
 
 
 async def _mark_failed(
-    sessionmaker: async_sessionmaker[AsyncSession], doc_id: UUID, error_code: str
+    sessionmaker: async_sessionmaker[AsyncSession], user_id: UUID, doc_id: UUID, error_code: str
 ) -> None:
     """Fresh session: the original one may be in a failed state. Never masks the caller's error."""
     try:
-        async with sessionmaker() as session:
-            await session.execute(
-                update(Document)
-                .where(Document.id == doc_id)
-                .values(status="failed", error_code=error_code)
-            )
-            await session.commit()
+        # Shielded so a cancelled request (client disconnect) can still record the failure.
+        with anyio.CancelScope(shield=True):
+            async with sessionmaker() as session:
+                await session.execute(
+                    update(Document)
+                    .where(Document.id == doc_id, Document.user_id == user_id)
+                    .values(status="failed", error_code=error_code)
+                )
+                await session.commit()
     except Exception as exc:  # noqa: BLE001
         log.error("ingest_mark_failed_error", document_id=str(doc_id), exc_info=exc)
 
@@ -149,6 +152,11 @@ async def _store(
     vectors: list[list[float]],
 ) -> None:
     async with sessionmaker() as session:
+        # Serialize same-user, same-type ingests: the last writer wins deterministically.
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:k1), hashtext(:k2))"),
+            {"k1": str(user_id), "k2": doc_type},
+        )
         # The previous ready document goes only now, so a failed ingest never loses it.
         await session.execute(
             delete(Document).where(
@@ -232,17 +240,23 @@ async def ingest_document(
         yield _progress("embedding", "started")
         t_embed = time.perf_counter()
         vectors = await embedder.embed_documents([d.text for d in drafts])
+        if len(vectors) != len(drafts):
+            raise ProviderError("embedder")
         embed_s = time.perf_counter() - t_embed
         yield _progress("embedding", "done")
 
         yield _progress("storing", "started")
         await _store(sessionmaker, user_id, doc_id, doc_type, drafts, vectors)
         yield _progress("storing", "done")
-    except AppError as exc:
-        await _mark_failed(sessionmaker, doc_id, exc.code)
-        raise
-    except Exception:
-        await _mark_failed(sessionmaker, doc_id, "internal")
+    except BaseException as exc:
+        # BaseException covers CancelledError and GeneratorExit (client disconnect).
+        if isinstance(exc, AppError):
+            code = exc.code
+        elif isinstance(exc, Exception):
+            code = "internal"
+        else:
+            code = "cancelled"
+        await _mark_failed(sessionmaker, user_id, doc_id, code)
         raise
 
     if request.upload_key is not None:

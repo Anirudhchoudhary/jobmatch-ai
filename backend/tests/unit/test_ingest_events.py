@@ -5,6 +5,7 @@ from uuid import UUID
 import pytest
 from pydantic import ValidationError
 
+from app.core.errors import ProviderError
 from app.core.settings import Settings
 from app.ingestion.blobs import LocalBlobStore
 from app.ingestion.service import ingest_document
@@ -30,8 +31,11 @@ class FakeSession:
     async def __aexit__(self, *_: object) -> None:
         return None
 
-    async def execute(self, stmt: object) -> FakeResult:
+    async def execute(self, stmt: Any, params: object = None) -> FakeResult:
         self.log.append("execute")
+        compiled = stmt.compile().params if hasattr(stmt, "compile") else {}
+        if "error_code" in compiled and compiled.get("status") == "failed":
+            self.log.append(f"failed:{compiled['error_code']}")
         return FakeResult()
 
     def add(self, obj: object) -> None:
@@ -98,3 +102,42 @@ async def test_ingest_event_sequence(monkeypatch: pytest.MonkeyPatch, tmp_path: 
 def test_document_request_validation(body: dict[str, Sequence[str] | str]) -> None:
     with pytest.raises(ValidationError):
         DocumentRequest.model_validate(body)
+
+
+def _gen(monkeypatch: pytest.MonkeyPatch, tmp_path: Any, sm: Any, embedder: Any) -> Any:
+    return ingest_document(
+        user_id=USER,
+        request=DocumentRequest(doc_type="jd", text=JD),
+        sessionmaker=sm,
+        blobs=LocalBlobStore(tmp_path),
+        embedder=embedder,
+        settings=_settings(monkeypatch),
+    )
+
+
+async def test_aclose_mid_ingest_marks_cancelled(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    sm = FakeSessionmaker()
+    gen = _gen(monkeypatch, tmp_path, sm, HashEmbedder())
+    async for _name, ev in gen:
+        if isinstance(ev, ProgressEvent) and (ev.step, ev.status) == ("embedding", "started"):
+            break
+    await gen.aclose()
+    assert "failed:cancelled" in sm.log
+
+
+class ShortEmbedder(HashEmbedder):
+    async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
+        return []
+
+
+async def test_embedder_length_mismatch_is_provider_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    sm = FakeSessionmaker()
+    with pytest.raises(ProviderError):
+        async for _ in _gen(monkeypatch, tmp_path, sm, ShortEmbedder()):
+            pass
+    assert "failed:provider_unavailable" in sm.log
+    assert not any(entry.startswith("add_all") for entry in sm.log)

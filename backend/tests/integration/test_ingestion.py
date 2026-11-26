@@ -1,3 +1,4 @@
+import asyncio
 import json
 import re
 from collections.abc import AsyncIterator, Sequence
@@ -234,3 +235,30 @@ async def test_invalid_request_is_422(env: Env) -> None:
     resp = await env.client.post("/api/stream/documents", json={"doc_type": "resume", "text": "x"})
     assert resp.status_code == 422
     assert resp.json()["error"]["code"] == "invalid_request"
+
+
+async def test_chunk_insert_failure_does_not_log_document_text(
+    env: Env, caplog: pytest.LogCaptureFixture
+) -> None:
+    secret = "ZQXSECRETRESUMETEXT"
+    body = {"doc_type": "jd", "text": f"{secret} backend engineer role with Python.\x00 " * 3}
+    with caplog.at_level("DEBUG"):
+        events = await env.ingest(body)
+    name, data = events[-1]
+    assert name == "error"
+    assert data["code"] == "internal"
+    assert secret not in caplog.text
+    (doc,) = await env.docs()
+    assert doc.status == "failed"
+    assert doc.error_code == "internal"
+
+
+async def test_concurrent_ingests_last_writer_wins(env: Env) -> None:
+    keys = [await env.upload(make_pdf([r])) for r in (RESUME, RESUME_B)]
+    results = await asyncio.gather(
+        *(env.ingest({"doc_type": "resume", "upload_key": k}) for k in keys)
+    )
+    assert [r[-1][0] for r in results] == ["done", "done"]
+    statuses = sorted(d.status for d in await env.docs())
+    assert statuses.count("ready") == 1
+    assert "processing" not in statuses
