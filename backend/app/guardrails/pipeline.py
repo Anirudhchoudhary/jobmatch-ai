@@ -67,6 +67,14 @@ class GuardrailPipeline:
         self._steps = tuple(steps)
         self._recorder = recorder
 
+    @property
+    def recorder(self) -> GuardrailRecorder:
+        return self._recorder
+
+    @property
+    def steps(self) -> tuple[GuardStep, ...]:
+        return self._steps
+
     async def _record(self, ctx: GuardContext, outcome: GuardrailOutcome) -> None:
         try:
             await self._recorder.record(ctx, outcome)

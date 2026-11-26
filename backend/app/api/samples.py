@@ -14,6 +14,7 @@ from app.api.deps import get_current_user_id
 from app.api.sse import sse_response
 from app.core.settings import Settings, get_settings
 from app.db.engine import get_sessionmaker
+from app.guardrails.factory import Guardrails, get_guardrails
 from app.ingestion.blobs import BlobStore, get_blob_store, new_upload_key
 from app.ingestion.service import ingest_document
 from app.llm.embeddings import Embedder
@@ -32,6 +33,7 @@ async def ingest_samples(
     blobs: BlobStore,
     embedder: Embedder,
     settings: Settings,
+    guardrails: Guardrails,
 ) -> AsyncIterator[tuple[str, BaseModel]]:
     """Resume (from its PDF bytes) then JD (as text); yields both ingests' events."""
     key = new_upload_key(user_id)
@@ -49,6 +51,7 @@ async def ingest_samples(
             blobs=blobs,
             embedder=embedder,
             settings=settings,
+            guardrails=guardrails,
             source="sample",
         ):
             yield event
@@ -61,6 +64,7 @@ async def post_samples(
     blobs: Annotated[BlobStore, Depends(get_blob_store)],
     sessionmaker: Annotated[async_sessionmaker[AsyncSession], Depends(get_sessionmaker)],
     settings: Annotated[Settings, Depends(get_settings)],
+    guardrails: Annotated[Guardrails, Depends(get_guardrails)],
 ) -> StreamingResponse:
     return sse_response(
         ingest_samples(
@@ -69,5 +73,6 @@ async def post_samples(
             blobs=blobs,
             embedder=providers.embedder,
             settings=settings,
+            guardrails=guardrails,
         )
     )

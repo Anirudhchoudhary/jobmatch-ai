@@ -40,7 +40,7 @@ async def _ready_doc_id(session: AsyncSession, user_id: UUID, doc_type: str) -> 
 async def _chunks(session: AsyncSession, user_id: UUID, doc_id: UUID) -> list[RetrievedChunk]:
     rows = await session.execute(
         select(Chunk)
-        .where(Chunk.user_id == user_id, Chunk.doc_id == doc_id)
+        .where(Chunk.user_id == user_id, Chunk.doc_id == doc_id, Chunk.quarantined.is_(False))
         .order_by(Chunk.ordinal)
     )
     return [

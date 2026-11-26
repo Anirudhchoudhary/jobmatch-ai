@@ -19,6 +19,8 @@ from app.core.errors import AppError
 from app.core.settings import get_settings
 from app.db.engine import make_engine
 from app.db.models import User
+from app.guardrails.factory import build_guardrails
+from app.guardrails.pipeline import NullRecorder
 from app.ingestion.blobs import LocalBlobStore
 from app.ingestion.service import ingest_document
 from app.llm.embeddings import HashEmbedder
@@ -91,6 +93,9 @@ async def _ingest(
         blobs=blobs,
         embedder=HashEmbedder(),
         settings=get_settings(),
+        guardrails=build_guardrails(
+            get_settings(), NullRecorder(), models=None, bedrock_client=None
+        ),
     ):
         pass
 
