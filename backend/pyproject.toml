@@ -13,6 +13,7 @@ dependencies = [
     "alembic",
     "boto3",
     "structlog",
+    "pypdf>=7.2.0",
 ]
 
 [dependency-groups]
@@ -25,6 +26,8 @@ dev = [
     "boto3-stubs[secretsmanager]",
     "python-dotenv",
     "pre-commit",
+    "fpdf2>=2.9.0",
+    "cryptography>=50.0.2",
 ]
 
 [tool.uv]
