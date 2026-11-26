@@ -2,7 +2,12 @@
 
 from functools import lru_cache
 
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from app.core.settings import get_settings
 
@@ -22,3 +27,8 @@ def get_engine() -> AsyncEngine:
         settings.database_url.get_secret_value(),
         connect_timeout_s=settings.db_connect_timeout_s,
     )
+
+
+@lru_cache
+def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
+    return async_sessionmaker(get_engine(), expire_on_commit=False)
