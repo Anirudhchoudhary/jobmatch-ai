@@ -23,7 +23,8 @@ def test_offline_has_only_rules_and_pii(monkeypatch: pytest.MonkeyPatch) -> None
     g = build_guardrails(_settings(monkeypatch), NullRecorder(), models=None, bedrock_client=None)
     assert _names(g.upload) == ["injection_rules"]
     assert _names(g.chat_input) == ["injection_rules", "pii"]
-    assert g.output.steps == ()
+    assert _names(g.output) == ["groundedness"]
+    assert g.output.steps[0].guard.provider == "self"
 
 
 def test_claude_guards_present_with_models(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -40,6 +41,9 @@ def test_claude_guards_present_with_models(monkeypatch: pytest.MonkeyPatch) -> N
         "topic",
         "pii",
     ]
+    assert [(s.guard.name, s.guard.provider) for s in g.output.steps] == [
+        ("groundedness", "anthropic")
+    ]
     modes = {s.guard.name: s.mode for s in g.chat_input.steps}
     assert modes["topic"] == "monitor"
     assert modes["injection_rules"] == "enforce"
@@ -54,6 +58,10 @@ def test_off_omits_guard(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     assert g.upload.steps == ()
     assert g.chat_input.steps == ()
+    off = _settings(monkeypatch, guard_groundedness="off")
+    assert (
+        build_guardrails(off, NullRecorder(), models=None, bedrock_client=None).output.steps == ()
+    )
 
 
 def test_bedrock_steps_present_when_enabled(monkeypatch: pytest.MonkeyPatch) -> None:

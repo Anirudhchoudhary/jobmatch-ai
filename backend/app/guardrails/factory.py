@@ -14,6 +14,7 @@ from app.db.engine import get_sessionmaker
 from app.guardrails.base import Guardrail, Stage
 from app.guardrails.bedrock import BedrockGuard
 from app.guardrails.classifiers import InjectionClassifier, TopicClassifier
+from app.guardrails.groundedness import ClaudeGroundedness, LexicalGroundedness
 from app.guardrails.pii import PiiGuard
 from app.guardrails.pipeline import GuardrailPipeline, GuardrailRecorder, GuardStep
 from app.guardrails.recorder import DbRecorder
@@ -75,13 +76,21 @@ def build_guardrails(
         lambda: TopicClassifier(models or (), load_prompt("topic_classifier")),
         needs=models,
     )
+    groundedness = step(
+        settings.guard_groundedness,
+        lambda: (
+            ClaudeGroundedness(models, load_prompt("groundedness_judge"))
+            if models
+            else LexicalGroundedness(settings.groundedness_min_overlap)
+        ),
+    )
     return Guardrails(
         upload=stage("upload", [*injection(), *bedrock()]),
         chat_input=stage(
             "chat_input",
             [*injection(), *topic, *bedrock(), *step(settings.guard_pii, PiiGuard)],
         ),
-        output=stage("output", []),
+        output=stage("output", groundedness),
     )
 
 
