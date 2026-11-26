@@ -197,7 +197,9 @@ async def ingest_document(
     blobs: BlobStore,
     embedder: Embedder,
     settings: Settings,
+    source: Literal["sample"] | None = None,
 ) -> AsyncIterator[IngestEvent]:
+    """``source`` is internal (not client-settable): only the bundled samples pass it."""
     doc_type = request.doc_type
     t0 = time.perf_counter()
 
@@ -225,7 +227,7 @@ async def ingest_document(
                 id=doc_id,
                 user_id=user_id,
                 doc_type=doc_type,
-                source="upload" if request.upload_key is not None else "text",
+                source=source or ("upload" if request.upload_key is not None else "text"),
                 filename=request.filename,
                 page_count=page_count,
                 content_sha256=sha,
