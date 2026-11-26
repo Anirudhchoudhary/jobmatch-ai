@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 import structlog
 
@@ -39,3 +41,29 @@ def test_log_output_is_redacted(capsys: pytest.CaptureFixture[str]) -> None:
     assert "a@b.io" not in out
     assert "[EMAIL]" in out
     assert out.count("signup") == 1
+
+
+def test_redact_value_non_string_leaves_and_keys() -> None:
+    assert redact_value({"a@b.io": 1}) == {"[EMAIL]": 1}
+    assert redact_value(ValueError("a@b.io")) == "a@b.io".replace("a@b.io", "[EMAIL]")
+    assert redact_value({"x@y.io"}) == ["[EMAIL]"]
+    assert redact_value(None) is None
+
+
+def test_exception_object_field_is_redacted(capsys: pytest.CaptureFixture[str]) -> None:
+    configure_logging()
+    structlog.get_logger("t").info("m", err=ValueError("a@b.io"))
+    out = capsys.readouterr().out
+    assert "a@b.io" not in out
+    assert "[EMAIL]" in out
+
+
+def test_uvicorn_loggers_are_redacted(capsys: pytest.CaptureFixture[str]) -> None:
+    lg = logging.getLogger("uvicorn.access")
+    lg.addHandler(logging.StreamHandler())
+    lg.propagate = False
+    configure_logging()
+    lg.info("GET /x?email=%s", "a@b.io")
+    out = capsys.readouterr().out
+    assert "a@b.io" not in out
+    assert "[EMAIL]" in out

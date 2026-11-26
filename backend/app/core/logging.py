@@ -33,16 +33,20 @@ def redact_pii(text: str) -> str:
 
 
 def redact_value(value: object) -> object:
-    """Recursively redact strings inside dicts, lists and tuples."""
+    """Recursively redact strings (and string forms of other objects)."""
     if isinstance(value, str):
         return redact_pii(value)
+    if value is None or isinstance(value, bool | int | float):
+        return value
     if isinstance(value, dict):
-        return {k: redact_value(v) for k, v in value.items()}
+        return {redact_value(k): redact_value(v) for k, v in value.items()}
     if isinstance(value, list):
         return [redact_value(v) for v in value]
     if isinstance(value, tuple):
         return tuple(redact_value(v) for v in value)
-    return value
+    if isinstance(value, set | frozenset):
+        return [redact_value(v) for v in value]
+    return redact_pii(str(value))
 
 
 def _redact_processor(_logger: Any, _method: str, event_dict: EventDict) -> EventDict:
@@ -83,4 +87,9 @@ def configure_logging(level: str = "INFO", *, json: bool = True) -> None:
     for existing in [h for h in root.handlers if getattr(h, _HANDLER_MARK, False)]:
         root.removeHandler(existing)
     root.addHandler(handler)
+    # uvicorn installs its own non-propagating handlers; route them through ours.
+    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        lg = logging.getLogger(name)
+        lg.handlers.clear()
+        lg.propagate = True
     root.setLevel(level.upper())
