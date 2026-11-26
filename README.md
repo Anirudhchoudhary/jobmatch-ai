@@ -183,7 +183,7 @@ A guard that raises (provider outage, throttling) never fails the request: it co
 
 ### Events
 
-Every non-allow result, every guard error and every quota refusal writes a row to `guardrail_events` and a `guardrail_fired` or `guardrail_error` log line. Columns: `request_id`, `user_id`, `stage` (`upload`, `chat_input`, `output`), `guardrail`, `provider`, `action` (`allow`, `redact`, `flag`, `block`, `error`), `mode`, `reason`, `latency_ms` and `item_count`. The `reason` is a fixed code chosen by our code (for example `pattern:ignore_instructions`, `off_topic`, `ungrounded:1/3`, `evidence_downgraded:1`, `suggestions_rejected:2`, `quota:chats`), never user text, and PII is stripped from it. A failure to write an event is logged (`guardrail_record_failed`) and never fails the request.
+Every non-allow result, every guard error and every quota refusal writes a row to `guardrail_events` and a `guardrail_fired` or `guardrail_error` log line. Columns: `request_id`, `user_id`, `stage` (`upload`, `chat_input`, `output`), `guardrail`, `provider`, `action` (`allow`, `redact`, `flag`, `block`, `error`), `mode`, `reason`, `latency_ms` and `item_count`. The `reason` is a fixed code chosen by our code (for example `pattern:ignore_instructions`, `off_topic`, `ungrounded:1/3`, `evidence_downgraded:1`, `suggestions_rejected:2`, `quota:chats`), never user text; reasons recorded by the guard pipeline additionally pass through PII redaction. A failure to write an event is logged (`guardrail_record_failed`) and never fails the request.
 
 ### Chat
 
@@ -202,6 +202,8 @@ curl -N -X POST localhost:8000/api/stream/chat -H 'Content-Type: application/jso
 # event: verdict data: {"grounded":true,"action":"allow","unsupported_claims":[],"mode":"enforce"}
 # event: done
 ```
+
+With `LLM_PROVIDER=fake` the canned answer is always flagged as ungrounded (`verdict` with `grounded:false`, `action:flag`), because the lexical check cannot support it; the `grounded:true` example above is what a real provider returns.
 
 Trade-off: tokens stream immediately, so the groundedness check can only run on the completed answer. It does not retract text already sent. Instead the final `verdict` event, sent just before `done`, says whether every claim in the answer is supported by the retrieved chunks: `grounded`, `action` (`allow` or `flag`), `unsupported_claims` (the claim texts) and `mode`. In `monitor` mode the verdict stays `grounded: true` and only the event row records the finding. `mode` is `null` when no output guard ran.
 
