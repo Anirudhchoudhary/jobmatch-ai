@@ -12,8 +12,14 @@ The author is a senior backend engineer (Python, FastAPI, LangGraph, AWS, Terraf
 
 ## 2. Users and access
 
-- Users: the author, and recruiters who receive a shared link. No public sign-up.
-- Access: invite code in the link (`https://<domain>/?code=XXXX`). Backend validates the code (stored hashed in Secrets Manager), issues a signed HTTP-only session cookie. The session id is the `user_id` for all stored data and retrieval filtering. Rotating the code revokes all access.
+- Users: the author, and recruiters who find the link on the author's resume. Anyone with the link can request access with an email address.
+- **Access: self-built email one-time code (OTP), delivered via Resend from the author's domain** *(author's choice)*:
+  1. `POST /api/auth/request-code {email}` → normalize email, create a 6-digit code (CSPRNG), store only its HMAC-SHA256 hash in Postgres (`login_codes`: email hash, code hash, expires_at = now+10 min, attempts, consumed_at); one active code per email (a new request invalidates the old). Send via Resend from `login@mail.<domain>`. Response is identical whether or not the email is new (no account enumeration).
+  2. `POST /api/auth/verify {email, code}` → constant-time compare, max 5 attempts per code, then set a signed HTTP-only `SameSite=Lax`, `Secure` session cookie (7-day expiry). The user row (`users`: id, email, created_at, last_seen_at) is created on first successful verify.
+  3. Abuse limits: code requests ≤3 per email per hour and ≤10 per IP per hour; Resend's free tier (~100 emails/day) is the hard ceiling and is monitored. Disposable-email domains are blocked with a small denylist.
+- **Per-user allowance** (config): e.g. 5 analyses, 10 uploads and 30 chat messages per user per day. One heavy user can no longer starve everyone else. A **global daily spend cap (~$1/day)** remains only as a last-resort safety net.
+- **Per-user analytics:** an `events` table (user id, event type: signed_up, logged_in, uploaded, analysed, chatted, guardrail_fired, quota_hit, with timestamps and cost) feeds a `make report` summary (users per day, funnel, cost per user, guardrail hits). Emails are stored for the author's own view only and are never sent to logs or Langfuse (traces use the user id).
+- The user id owns all stored data; retrieval always filters by it (and by the current document set).
 - A "Try with sample resume + JD" button runs the full flow on bundled synthetic documents so recruiters need not upload their own.
 - No history across sessions. Uploaded documents and derived data auto-delete after **72 hours**.
 
@@ -67,7 +73,14 @@ Chosen: **Neon**, by the author, for cost. Lambda runs outside a VPC and connect
 Chosen: **C**, by the author. Local dev and CI run with Bedrock Guardrails disabled; a separate eval job enables it to produce the comparison table.
 
 ### 5.3 Access
-Invite code + signed session cookie (§2), chosen because users are only the author and recruiters via shared link.
+| Option | Trade-off |
+|---|---|
+| Single shared invite code | simplest; no per-recruiter analytics, one heavy user exhausts the budget for all — rejected by the author |
+| Cognito email OTP, default sender | no domain needed, AWS-native; ~50 emails/day, sender `no-reply@verificationemail.com` often lands in spam |
+| Cognito + Resend via custom email sender trigger | Cognito JWTs; needs a KMS key (~$1/mo) + decrypting Lambda, more moving parts |
+| **Self-built OTP + Resend on the author's domain (chosen)** | $0, small, fully controlled, branded mail with good deliverability; we own the security details listed in §2 |
+
+SES was ruled out: new accounts start in the sandbox and production-access review takes from a day to weeks.
 
 ## 6. Architecture
 
@@ -101,7 +114,7 @@ Key points
 - **Uploads go straight to S3** via presigned PUT (Lambda sync payloads cap at 6 MB and API Gateway base64-inflates binaries). The API only receives the S3 key. *(My call.)*
 - **Function URL + CloudFront OAC:** OAC does not sign POST bodies for Lambda URLs, so the frontend sends an `x-amz-content-sha256` header (SHA-256 of the body via Web Crypto) on stream POSTs. *(My call.)*
 - **Region: us-west-2.** Bedrock Rerank models are not offered in us-east-1; us-west-2 has Titan Embeddings V2, Amazon Rerank 1.0 and Guardrails. ACM certs for CloudFront still live in us-east-1 if a domain is added. *(My call.)*
-- **No custom domain initially** — the app uses the `*.cloudfront.net` hostname; a Terraform variable allows adding one later (ACM + Route 53 at ~$0.50/mo). *(My call.)*
+- **Custom domain:** the author owns a domain (valid to 2029). The app runs at `jobmatch.<domain>` (CloudFront alias, free ACM certificate in us-east-1, DNS-validated). DNS stays at the author's current registrar: Terraform outputs the CNAME/TXT records to add by hand, so no Route 53 hosted zone ($0.50/mo) is needed. Resend sends from the subdomain `mail.<domain>` (its SPF/DKIM/MX records also added at the registrar, plus a DMARC record), so the root domain's reputation is isolated.
 - **Local:** `docker compose up` runs Postgres+pgvector and the API (uvicorn) and the Next.js dev server. Langfuse is optional locally (Cloud keys or disabled).
 
 ### 6.1 Main flows
@@ -125,7 +138,7 @@ Key points
 ### 7.2 Ingestion
 - Parse PDF with `pypdf` (text-based PDFs only; reject if extracted text is empty → "scanned PDFs not supported").
 - Resume chunking by detected section (Experience, Education, Skills, Projects, Summary…) via heading heuristics; within Experience, one chunk per role/bullet group, capped ~400 tokens with small overlap. JD chunked by section (Responsibilities, Requirements, Nice-to-have…).
-- Table `chunks(id, session_id, doc_id, doc_type{resume,jd}, section, ordinal, text, embedding vector(1024), tsv tsvector, created_at)`, HNSW index on embedding, GIN on tsv. Every query filters by `session_id`.
+- Table `chunks(id, user_id, doc_id, doc_type{resume,jd}, section, ordinal, text, embedding vector(1024), tsv tsvector, created_at)`, HNSW index on embedding, GIN on tsv. Every query filters by `user_id` and the active `doc_id`s.
 
 ### 7.3 Retrieval (hybrid)
 - Vector top-k (cosine) + Postgres full-text top-k (`websearch_to_tsquery`), fused with Reciprocal Rank Fusion, then reranked, top-n passed to generation. Chunk ids become citation ids.
@@ -149,7 +162,7 @@ Pydantic models for every input/output (`MatchAnalysis`, `SkillMatch{skill, stat
 | upload / chat_input | prompt injection (incl. hidden in documents) | pattern rules + Haiku classifier on chunks | prompt-attack filter via `ApplyGuardrail` |
 | logging boundary | PII redaction (phone, email, address) | regex + Presidio (spaCy small model) | PII filter `ANONYMIZE` |
 | chat_input | topic control | Haiku classifier → polite refusal | denied topics (optional) |
-| chat_input | rate limit | per-session token bucket in Postgres + global daily spend cap | — |
+| chat_input | rate limit / allowance | per-user daily allowance + short-window token bucket in Postgres, global daily spend cap as backstop | — |
 | output | schema validation | Pydantic + retry | — |
 | output | groundedness (per claim) | split answer into claims, judge each against cited chunks (Haiku) | contextual grounding check (whole answer) for comparison |
 | output | hallucination block | every skill/employer/title in output must be found in resume chunks (normalized string + embedding match) | — |
@@ -165,10 +178,10 @@ Pydantic models for every input/output (`MatchAnalysis`, `SkillMatch{skill, stat
 - **PII never leaves redaction:** a single redaction function is applied to everything before it reaches logs (structlog processor) or Langfuse (masking hook).
 - `request_log` table: request id, route, model(s), input/output tokens, cost USD (from a pricing table in config), cache hit, latency, guardrail outcomes. A `make report` script computes p50/p95 latency and cost per request type.
 - **Semantic cache:** pgvector table keyed by (document-set hash, query embedding); hit when cosine ≥ threshold (config, ~0.95) and same documents; TTL 72h. Applies to chat and analysis; bypassed when a guardrail flagged the request.
-- **Spend cap:** global daily model-spend cap (Anthropic + Bedrock, ~$0.30/day, config); when exceeded the API returns a polite "demo budget reached" response.
+- **Spend controls:** per-user daily allowance (§2) first; a global daily model-spend cap (Anthropic + Bedrock, ~$1/day, config) as a backstop. Each limit returns its own friendly message ("you've used today's 5 analyses — resets at midnight UTC" vs. "the demo is at capacity today").
 
 ### 7.8 Security
-- **All secrets in AWS Secrets Manager**, one JSON secret per environment (`jobmatch/dev`, `jobmatch/prod`; ≈$0.40 each/month) with keys: `ANTHROPIC_API_KEY`, `DATABASE_URL` (Neon), `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `SESSION_SIGNING_KEY`, `INVITE_CODE_HASH`.
+- **All secrets in AWS Secrets Manager**, one JSON secret per environment (`jobmatch/dev`, `jobmatch/prod`; ≈$0.40 each/month) with keys: `ANTHROPIC_API_KEY`, `DATABASE_URL` (Neon), `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `SESSION_SIGNING_KEY`, `OTP_HMAC_KEY`, `RESEND_API_KEY`.
 - **Terraform creates the secret containers but never their values**, so no secret ever lands in Terraform state or the repo. The author sets values once with `aws secretsmanager put-secret-value` (a `make secrets-set` helper prompts with hidden input).
 - **Deployed:** Lambda reads `jobmatch/prod` from Secrets Manager at cold start and caches it in memory — no `.env` is baked into the image (secrets in image layers are recoverable from ECR).
 - **Local:** `make env` pulls `jobmatch/dev` with the author's AWS credentials and generates a git-ignored `.env` (mode 600) that Docker Compose reads. Alternatively the app can read Secrets Manager directly when `SECRETS_SOURCE=aws`. `.env` is never hand-edited or committed; `.gitignore` and a pre-commit secret scanner (gitleaks) enforce it.
@@ -177,7 +190,7 @@ Pydantic models for every input/output (`MatchAnalysis`, `SkillMatch{skill, stat
 - S3 uploads: private, SSE, block public access, 3-day lifecycle expiry as a backstop only (lifecycle is day-granular and asynchronous).
 
 ### 7.9 Data lifecycle
-EventBridge Scheduler triggers a cleanup Lambda hourly (free-tier invocations): deletes S3 objects, chunks, analyses, cache entries, and logs referencing sessions older than 72h (guardrail_events and request_log keep aggregate fields only, no text).
+EventBridge Scheduler triggers a cleanup Lambda hourly (free-tier invocations): deletes S3 objects, chunks, analyses, cache entries, and login codes and logs for documents older than 72h (guardrail_events, request_log and events keep aggregate fields only, no text). `users` rows (email) are kept for analytics; the author can purge them with `make purge-users`.
 
 ## 8. Evaluation
 - **Golden dataset** (`evals/dataset/`): ≥30 synthetic resume/JD pairs generated with an LLM and hand-curated, stored as text + rendered PDFs + expected outputs (expected matched/missing skills, score band, Q&A pairs with expected answer and supporting chunk ids). Categories: strong match, partial, poor match, career changer, missing information, prompt injection in resume, injection in JD, injection in chat, off-topic chat, PII-heavy resume, requests to fabricate experience. No real resumes.
@@ -190,12 +203,12 @@ EventBridge Scheduler triggers a cleanup Lambda hourly (free-tier invocations): 
 - Expected eval cost with Haiku 5.5 as the system model and Sonnet 5.5 as judge: roughly $0.10–0.50 per full run (to be measured in Phase 6 and reported).
 
 ## 9. Frontend
-Next.js (static export) + Tailwind on S3/CloudFront. Screens: landing (code check, sample button) → upload → results (score, matched/missing skills with evidence quotes, suggestions with original vs rewritten) → chat (streaming, clickable citations that highlight source chunks). A "Show guardrails" panel lists which guardrails ran and fired for each response, which makes the engineering visible to recruiters.
+Next.js (static export) + Tailwind on S3/CloudFront. Screens: landing (email → code sign-in, sample button) → upload → results (score, matched/missing skills with evidence quotes, suggestions with original vs rewritten) → chat (streaming, clickable citations that highlight source chunks). A "Show guardrails" panel lists which guardrails ran and fired for each response, which makes the engineering visible to recruiters.
 
 ## 10. Infrastructure and deployment
 - Terraform with remote state in S3 (native lockfile). Modules: `network-free` edge (CloudFront, S3 sites), `api` (ECR, Lambda, Function URL, API Gateway HTTP API, IAM), `data` (Neon project via the Neon Terraform provider, S3 uploads), `secrets`, `guardrails` (Bedrock guardrail + version), `ops` (Budgets $10/$25 alerts, log groups, cleanup schedule), `ci` (GitHub OIDC provider + role).
 - `make up` (local), `make deploy` (build image → push → terraform apply → build/sync frontend → invalidate CDN).
-- **Hourly-billed resources: none planned.** Estimated monthly: Lambda/API GW/S3/CloudFront ≈ $0–1 (free tier), Secrets Manager ≈ $1–2, ECR ≈ $0.10, Bedrock (Titan/Rerank/Guardrails) ≈ $0–1. **AWS total ≈ $2–4.** Anthropic API is billed separately to the author's key: demo traffic capped at ~$0.30/day by the spend cap, plus CI evals as above. The author is asked before applying anything that bills hourly.
+- **Hourly-billed resources: none planned.** Estimated monthly: Lambda/API GW/S3/CloudFront ≈ $0–1 (free tier), Secrets Manager ≈ $1–2, ECR ≈ $0.10, Bedrock (Titan/Rerank/Guardrails) ≈ $0–1. **AWS total ≈ $2–4.** Resend free tier $0. Anthropic API is billed separately to the author's key: demo traffic capped at ~$1/day worst case by the backstop cap (expected far lower at Haiku 5.5 prices), plus CI evals as above. The author is asked before applying anything that bills hourly.
 
 ## 11. Repository layout
 ```
