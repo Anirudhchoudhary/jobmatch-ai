@@ -87,3 +87,23 @@ async def test_titan_error_becomes_provider_error() -> None:
     assert "Throttling" not in str(exc.value)
     assert exc.value.__cause__ is None
     assert exc.value.__suppress_context__
+
+
+async def test_titan_malformed_response_becomes_provider_error() -> None:
+    client = _client()
+    raw = b'{"nope": 1}'
+    with Stubber(client) as stub:
+        stub.add_response(
+            "invoke_model",
+            {"body": StreamingBody(io.BytesIO(raw), len(raw)), "contentType": "application/json"},
+        )
+        with pytest.raises(ProviderError):
+            await BedrockTitanEmbedder(client, MODEL, 2).embed_query("x")
+    bad = b"not json"
+    with Stubber(client) as stub:
+        stub.add_response(
+            "invoke_model",
+            {"body": StreamingBody(io.BytesIO(bad), len(bad)), "contentType": "application/json"},
+        )
+        with pytest.raises(ProviderError):
+            await BedrockTitanEmbedder(client, MODEL, 2).embed_query("x")

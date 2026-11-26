@@ -56,9 +56,9 @@ class BedrockReranker:
                         },
                     },
                 )
-            except (ClientError, BotoCoreError):
+                hits = [RerankHit(r["index"], r["relevanceScore"]) for r in resp["results"]]
+            except (ClientError, BotoCoreError, KeyError, TypeError):
                 raise ProviderError("bedrock") from None
-            hits = [RerankHit(r["index"], r["relevanceScore"]) for r in resp["results"]]
             return sorted(hits, key=lambda h: h.relevance or 0.0, reverse=True)
 
         return await asyncio.to_thread(call)

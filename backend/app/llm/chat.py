@@ -1,7 +1,7 @@
 """Chat model factory: offline fake by default, ChatAnthropic when configured."""
 
 from collections.abc import Iterator
-from itertools import repeat
+from itertools import count
 
 from langchain_anthropic import ChatAnthropic
 from langchain_core.language_models import BaseChatModel
@@ -14,7 +14,8 @@ FAKE_ANSWER = "(fake model) I can't answer without a real model [r1]."
 
 
 def _fake_replies() -> Iterator[AIMessage]:
-    return repeat(AIMessage(content=FAKE_ANSWER))
+    # A fresh message per call: langchain mutates ids/metadata onto the instance.
+    return (AIMessage(content=FAKE_ANSWER) for _ in count())
 
 
 def make_chat_model(settings: Settings) -> BaseChatModel:

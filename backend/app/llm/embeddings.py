@@ -66,7 +66,7 @@ class BedrockTitanEmbedder:
             )
             embedding: list[float] = json.loads(resp["body"].read())["embedding"]
             return embedding
-        except (ClientError, BotoCoreError):
+        except (ClientError, BotoCoreError, KeyError, TypeError, ValueError):
             raise ProviderError("bedrock") from None
 
     async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:

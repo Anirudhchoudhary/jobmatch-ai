@@ -67,3 +67,14 @@ def test_anthropic_chat_model_builds_offline(monkeypatch: pytest.MonkeyPatch) ->
 def test_env_isolation_covers_all_fields() -> None:
     cleared = set(conftest._ISOLATED_ENV_VARS)
     assert {name.upper() for name in Settings.model_fields} <= cleared
+
+
+async def test_fake_chat_returns_fresh_messages(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", DB)
+    from app.llm.chat import make_chat_model
+
+    m = make_chat_model(get_settings())
+    a = await m.ainvoke([HumanMessage("hi")])
+    b = await m.ainvoke([HumanMessage("hi")])
+    assert a is not b
+    assert a.id != b.id
