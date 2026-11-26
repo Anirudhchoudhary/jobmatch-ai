@@ -64,6 +64,21 @@ def test_ticket_rejects_oversize(client: TestClient) -> None:
     assert resp.json()["error"]["code"] == "too_large"
 
 
+def test_too_large_message_follows_configured_limit(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MAX_UPLOAD_BYTES", "2097152")
+    get_settings.cache_clear()
+    resp = client.post(
+        "/api/uploads", json={"content_type": "application/pdf", "size_bytes": 2_097_153}
+    )
+    assert resp.status_code == 413
+    assert "2 MB" in resp.json()["error"]["message"]
+    key = str(_ticket(client)["key"])
+    put = client.put(f"/api/uploads/{key}", content=b"a" * 2_097_153, headers=PDF)
+    assert "2 MB" in put.json()["error"]["message"]
+
+
 @pytest.mark.parametrize("size", [0, -1])
 def test_ticket_rejects_bad_size(client: TestClient, size: int) -> None:
     resp = client.post("/api/uploads", json={"content_type": "application/pdf", "size_bytes": size})

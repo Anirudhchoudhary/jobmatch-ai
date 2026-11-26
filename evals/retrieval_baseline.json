@@ -1,0 +1,24 @@
+{
+  "providers": {
+    "embedder": "bedrock",
+    "reranker": "bedrock",
+    "embed_model_id": "amazon.titan-embed-text-v2:0"
+  },
+  "modes": {
+    "vector": {
+      "recall_at_5": 0.9166666666666666,
+      "mrr": 0.6597222222222222,
+      "n": 12
+    },
+    "hybrid": {
+      "recall_at_5": 1.0,
+      "mrr": 0.7430555555555557,
+      "n": 12
+    },
+    "hybrid+rerank": {
+      "recall_at_5": 0.9166666666666666,
+      "mrr": 0.7777777777777777,
+      "n": 12
+    }
+  }
+}

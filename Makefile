@@ -58,4 +58,4 @@ retrieval-eval:
 
 # Real Bedrock embeddings + rerank: needs AWS credentials; costs fractions of a cent.
 retrieval-eval-live:
-	EMBEDDER_PROVIDER=bedrock RERANKER_PROVIDER=bedrock $(RUN) python -m scripts.retrieval_eval --out ../evals/retrieval_baseline.json
+	cd backend && EMBEDDER_PROVIDER=bedrock RERANKER_PROVIDER=bedrock $(UV) run python -m scripts.retrieval_eval --out ../evals/retrieval_baseline.json

@@ -42,6 +42,10 @@ class CountingEmbedder(HashEmbedder):
         return await super().embed_documents(texts)
 
 
+class OtherModelEmbedder(CountingEmbedder):
+    embed_model = "other:v2:1024"
+
+
 class FailingEmbedder(HashEmbedder):
     async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
         raise ProviderError("bedrock")
@@ -173,6 +177,26 @@ async def test_reingest_same_content_is_reused(env: Env) -> None:
     assert second["chunk_count"] == first["chunk_count"]
     assert env.embedder.calls == calls
     assert len(await env.docs()) == 1
+
+
+async def test_reingest_with_different_embed_model_re_embeds(env: Env) -> None:
+    first = (await env.ingest({"doc_type": "jd", "text": JD}))[-1][1]
+    other = OtherModelEmbedder()
+    env.holder["embedder"] = other  # type: ignore[attr-defined]
+    second = (await env.ingest({"doc_type": "jd", "text": JD}))[-1][1]
+    assert second["reused"] is False
+    assert second["document_id"] != first["document_id"]
+    assert other.calls == 1
+    (doc,) = await env.docs()
+    assert str(doc.id) == second["document_id"]
+    assert doc.embed_model == "other:v2:1024"
+    assert await env.chunk_count(UUID(str(first["document_id"]))) == 0
+
+
+async def test_document_records_embed_model(env: Env) -> None:
+    await env.ingest({"doc_type": "jd", "text": JD})
+    (doc,) = await env.docs()
+    assert doc.embed_model == "hash:v1:1024"
 
 
 async def test_replacing_resume_removes_old_chunks(env: Env) -> None:

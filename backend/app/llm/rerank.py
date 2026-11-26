@@ -8,6 +8,7 @@ from typing import Any, Protocol
 from botocore.exceptions import BotoCoreError, ClientError
 
 from app.core.errors import ProviderError
+from app.llm.errors import log_provider_failure
 
 
 @dataclass(frozen=True)
@@ -57,7 +58,8 @@ class BedrockReranker:
                     },
                 )
                 hits = [RerankHit(r["index"], r["relevanceScore"]) for r in resp["results"]]
-            except (ClientError, BotoCoreError, KeyError, TypeError):
+            except (ClientError, BotoCoreError, KeyError, TypeError) as exc:
+                log_provider_failure("bedrock", exc)
                 raise ProviderError("bedrock") from None
             return sorted(hits, key=lambda h: h.relevance or 0.0, reverse=True)
 

@@ -85,10 +85,13 @@ async def env(engine: AsyncEngine, tmp_path: Path) -> AsyncIterator[Env]:
     app.dependency_overrides[get_current_user_id] = lambda: user_id
     app.dependency_overrides[get_sessionmaker] = lambda: sm
     app.dependency_overrides[get_blob_store] = lambda: blobs
-    app.dependency_overrides[get_providers] = lambda: providers
+    holder = {"providers": providers}
+    app.dependency_overrides[get_providers] = lambda: holder["providers"]
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        yield Env(client, user_id, sm)
+        e = Env(client, user_id, sm)
+        e.holder = holder  # type: ignore[attr-defined]
+        yield e
     async with sm() as s:
         await s.execute(text("DELETE FROM users WHERE id = :i"), {"i": user_id})
         await s.commit()
@@ -127,6 +130,22 @@ async def test_chat_without_documents_refuses(env: Env) -> None:
     assert done["answer"] == REFUSAL_TEXT
     assert done["citations"] == []
     assert ("progress", {"step": "generating"}) not in events
+
+
+async def test_chat_ignores_documents_from_another_embedder(env: Env) -> None:
+    await env.ingest_resume()
+    await env.ingest_jd()
+
+    class OtherEmbedder(HashEmbedder):
+        embed_model = "other:v2:1024"
+
+    old = env.holder["providers"]  # type: ignore[attr-defined]
+    env.holder["providers"] = Providers(OtherEmbedder(), old.reranker, old.chat_model)  # type: ignore[attr-defined]
+    events = await env.post("/api/stream/chat", {"question": "What Python work has she done?"})
+    name, done = events[-1]
+    assert name == "done"
+    assert done["refused"] is True
+    assert done["answer"] == REFUSAL_TEXT
 
 
 @pytest.mark.parametrize("question", ["   ", "x" * 2001])

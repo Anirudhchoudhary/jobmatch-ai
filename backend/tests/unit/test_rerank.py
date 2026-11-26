@@ -4,6 +4,7 @@ import boto3
 import pytest
 from botocore.config import Config
 from botocore.stub import Stubber
+from structlog.testing import capture_logs
 
 from app.core.errors import ProviderError
 from app.core.settings import get_settings
@@ -85,3 +86,16 @@ def test_effective_rerank_arn_region_and_override(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setenv("RERANK_MODEL_ARN", "arn:custom")
     get_settings.cache_clear()
     assert get_settings().effective_rerank_arn == "arn:custom"
+
+
+async def test_bedrock_reranker_error_logs_code_without_message() -> None:
+    client = _client()
+    with Stubber(client) as stub, capture_logs() as logs:
+        stub.add_client_error("rerank", "AccessDeniedException", "ZQXDENIED")
+        with pytest.raises(ProviderError):
+            await BedrockReranker(client, DEFAULT_ARN).rerank("ZQXQUERY", ["a"], 1)
+    (entry,) = [e for e in logs if e["event"] == "provider_call_failed"]
+    assert entry["log_level"] == "warning"
+    assert entry["error_type"] == "AccessDeniedException"  # botocore's modeled ClientError subclass
+    assert entry["error_code"] == "AccessDeniedException"
+    assert "ZQXDENIED" not in str(logs) and "ZQXQUERY" not in str(logs)

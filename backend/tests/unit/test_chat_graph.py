@@ -188,6 +188,22 @@ async def test_anthropic_errors_become_provider_unavailable(error: BaseException
     assert warning["provider"] == "anthropic"
 
 
+async def test_anthropic_error_logs_type_and_status_without_message() -> None:
+    error = anthropic.InternalServerError(
+        "ZQXBOOM",
+        response=httpx.Response(529, request=httpx.Request("POST", "https://x")),
+        body=None,
+    )
+    with capture_logs() as logs:
+        await _sse(ScriptedModel(error=error))
+    (entry,) = [e for e in logs if e["event"] == "provider_call_failed"]
+    assert entry["log_level"] == "warning"
+    assert entry["provider"] == "anthropic"
+    assert entry["error_type"] == "InternalServerError"
+    assert entry["status_code"] == 529
+    assert "ZQXBOOM" not in str(logs)
+
+
 async def test_thinking_blocks_not_streamed() -> None:
     model = ScriptedModel(
         contents=[

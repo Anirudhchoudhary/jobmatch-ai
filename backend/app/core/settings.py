@@ -8,6 +8,7 @@ from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.secrets import load_secret
+from app.db.models import EMBEDDING_DIM
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 ENV_FILE = _REPO_ROOT / ".env"
@@ -66,6 +67,14 @@ class Settings(_Bootstrap):
     def _require_anthropic_key(self) -> "Settings":
         if self.llm_provider == "anthropic" and self.anthropic_api_key is None:
             raise ValueError("ANTHROPIC_API_KEY is required when LLM_PROVIDER=anthropic")
+        return self
+
+    @model_validator(mode="after")
+    def _embed_dimensions_match_schema(self) -> "Settings":
+        if self.embed_dimensions != EMBEDDING_DIM:
+            raise ValueError(
+                f"EMBED_DIMENSIONS must be {EMBEDDING_DIM} to match the chunks.embedding column"
+            )
         return self
 
     @property

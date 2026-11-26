@@ -17,15 +17,16 @@ local_put_router = APIRouter(prefix="/api/uploads", tags=["uploads"])
 UserId = Annotated[UUID, Depends(get_current_user_id)]
 
 
-def _too_large() -> AppError:
-    return AppError("too_large", "That file is too large (5 MB maximum).", 413)
+def _too_large(max_bytes: int) -> AppError:
+    limit_mb = max_bytes / 1_048_576
+    return AppError("too_large", f"That file is too large. The limit is {limit_mb:g} MB.", 413)
 
 
 @router.post("")
 async def create_upload(body: UploadRequest, user_id: UserId) -> UploadTicket:
     max_bytes = get_settings().max_upload_bytes
     if body.size_bytes > max_bytes:
-        raise _too_large()
+        raise _too_large(max_bytes)
     key = new_upload_key(user_id)
     return UploadTicket(
         key=key,
@@ -50,13 +51,13 @@ async def put_upload(
     max_bytes = get_settings().max_upload_bytes
     declared = request.headers.get("content-length", "")
     if declared.isdecimal() and int(declared) > max_bytes:
-        raise _too_large()
+        raise _too_large(max_bytes)
     chunks: list[bytes] = []
     total = 0
     async for chunk in request.stream():
         total += len(chunk)
         if total > max_bytes:
-            raise _too_large()
+            raise _too_large(max_bytes)
         chunks.append(chunk)
     await store.put(key, b"".join(chunks))
     return Response(status_code=204)

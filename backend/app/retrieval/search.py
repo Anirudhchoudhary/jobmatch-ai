@@ -1,7 +1,7 @@
 """Single-stage searches over chunks: pgvector cosine and Postgres full-text.
 
-Every query is scoped by ``user_id`` and by the caller's ``ready`` document ids, and all
-values are bound parameters.
+Every query is scoped by ``user_id`` and by the caller's ``ready`` document ids (embedded by
+the current embedder), and all values are bound parameters.
 """
 
 from dataclasses import dataclass
@@ -32,9 +32,14 @@ class RetrievedChunk:
     relevance: float | None = None
 
 
-async def active_doc_ids(session: AsyncSession, user_id: UUID) -> list[UUID]:
+async def active_doc_ids(session: AsyncSession, user_id: UUID, *, embed_model: str) -> list[UUID]:
+    """The user's ready documents whose vectors came from ``embed_model`` (others are stale)."""
     rows = await session.execute(
-        select(Document.id).where(Document.user_id == user_id, Document.status == "ready")
+        select(Document.id).where(
+            Document.user_id == user_id,
+            Document.status == "ready",
+            Document.embed_model == embed_model,
+        )
     )
     return list(rows.scalars())
 

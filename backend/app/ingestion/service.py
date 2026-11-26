@@ -118,19 +118,24 @@ async def _read_source(
 
 
 async def _find_reusable(
-    sessionmaker: async_sessionmaker[AsyncSession], user_id: UUID, doc_type: str, sha: str
+    sessionmaker: async_sessionmaker[AsyncSession],
+    user_id: UUID,
+    doc_type: str,
+    sha: str,
+    embed_model: str,
 ) -> DocumentReady | None:
+    """The ready document, if it has the same content and was embedded by the same model."""
     async with sessionmaker() as session:
         row = (
             await session.execute(
-                select(Document.id, Document.content_sha256).where(
+                select(Document.id, Document.content_sha256, Document.embed_model).where(
                     Document.user_id == user_id,
                     Document.doc_type == doc_type,
                     Document.status == "ready",
                 )
             )
         ).first()
-        if row is None or row.content_sha256 != sha:
+        if row is None or row.content_sha256 != sha or row.embed_model != embed_model:
             return None
         count = (
             await session.execute(
@@ -212,7 +217,7 @@ async def ingest_document(
     text, page_count, sha = await _read_source(request, user_id, sessionmaker, blobs, settings)
     yield _progress("parsing", "done")
 
-    reused = await _find_reusable(sessionmaker, user_id, doc_type, sha)
+    reused = await _find_reusable(sessionmaker, user_id, doc_type, sha, embedder.embed_model)
     if reused is not None:
         if request.upload_key is not None:
             await _delete_blob(blobs, request.upload_key)
@@ -231,6 +236,7 @@ async def ingest_document(
                 filename=request.filename,
                 page_count=page_count,
                 content_sha256=sha,
+                embed_model=embedder.embed_model,
                 status="processing",
             )
         )

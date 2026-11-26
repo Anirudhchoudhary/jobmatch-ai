@@ -5,6 +5,10 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
+# Raw-body cap before normalisation: 4x the 20 000-character JD limit leaves room for
+# whitespace that stripping removes, while rejecting huge bodies early (422).
+MAX_RAW_TEXT_CHARS = 4 * 20_000
+
 
 class UploadRequest(BaseModel):
     content_type: Literal["application/pdf"]
@@ -23,7 +27,7 @@ class UploadTicket(BaseModel):
 class DocumentRequest(BaseModel):
     doc_type: Literal["resume", "jd"]
     upload_key: str | None = None
-    text: str | None = None
+    text: str | None = Field(default=None, max_length=MAX_RAW_TEXT_CHARS)
     filename: str | None = Field(default=None, max_length=200)
 
     @model_validator(mode="after")

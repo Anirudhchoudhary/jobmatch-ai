@@ -39,7 +39,7 @@ class Retriever:
     async def candidates(self, user_id: UUID, query: str) -> list[RetrievedChunk]:
         """Vector hits (``vector`` mode) or RRF of vector and full-text hits (otherwise)."""
         async with self._sm() as session:
-            doc_ids = await active_doc_ids(session, user_id)
+            doc_ids = await active_doc_ids(session, user_id, embed_model=self._embedder.embed_model)
             if not doc_ids:
                 return []
             embedding = await self._embedder.embed_query(query)

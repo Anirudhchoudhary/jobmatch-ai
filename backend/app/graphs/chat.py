@@ -23,6 +23,7 @@ from pydantic import BaseModel
 from app.core.errors import ProviderError
 from app.core.request_id import request_id_var
 from app.graphs.citations import REFUSAL_TEXT, extract_citations, format_context, label_context
+from app.llm.errors import log_provider_failure
 from app.llm.prompts import Prompt
 from app.retrieval.search import RetrievedChunk
 from app.retrieval.service import Retriever
@@ -111,6 +112,7 @@ def build_chat_graph(
                     answer.append(text)
                     writer({"type": "token", "text": text})
         except (anthropic.APIError, ModelError) as exc:
+            log_provider_failure("anthropic", exc)
             raise ProviderError("anthropic") from exc
         log.info("chat_generated", ms=_ms(start))
         return {"answer": "".join(answer), "refused": False}

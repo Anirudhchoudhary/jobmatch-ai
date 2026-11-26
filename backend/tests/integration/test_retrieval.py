@@ -122,7 +122,7 @@ async def _ranks(chunks: Sequence[RetrievedChunk], needle: str) -> int:
 async def test_vector_search_finds_relevant_chunk(world: World) -> None:
     emb = await world.embedder.embed_query("Kafka streaming pipelines")
     async with world.sm() as s:
-        ids = await active_doc_ids(s, world.user_a)
+        ids = await active_doc_ids(s, world.user_a, embed_model=world.embedder.embed_model)
         assert len(ids) == 2
         hits = await vector_search(s, user_id=world.user_a, doc_ids=ids, query_embedding=emb, k=20)
     assert hits
@@ -133,7 +133,7 @@ async def test_vector_search_finds_relevant_chunk(world: World) -> None:
 
 async def test_text_search_exact_term(world: World) -> None:
     async with world.sm() as s:
-        ids = await active_doc_ids(s, world.user_a)
+        ids = await active_doc_ids(s, world.user_a, embed_model=world.embedder.embed_model)
         hits = await text_search(s, user_id=world.user_a, doc_ids=ids, query="Terraform", k=20)
     assert hits
     assert "Terraform" in hits[0].text
@@ -147,7 +147,7 @@ async def test_text_search_tolerates_awkward_queries(world: World, query: str) -
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         async with world.sm() as s:
-            ids = await active_doc_ids(s, world.user_a)
+            ids = await active_doc_ids(s, world.user_a, embed_model=world.embedder.embed_model)
             hits = await text_search(s, user_id=world.user_a, doc_ids=ids, query=query, k=20)
     assert isinstance(hits, list)
 
@@ -166,7 +166,7 @@ async def test_hybrid_scores_are_rrf(world: World) -> None:
 
 async def test_retrieval_is_isolated_per_user(world: World) -> None:
     async with world.sm() as s:
-        a_docs = set(await active_doc_ids(s, world.user_a))
+        a_docs = set(await active_doc_ids(s, world.user_a, embed_model=world.embedder.embed_model))
     for mode in ("vector", "hybrid"):
         hits = await world.retriever(mode).candidates(world.user_b, "Zyxquartz Kafka Terraform")
         assert hits
@@ -180,8 +180,20 @@ async def test_non_ready_documents_are_excluded(world: World) -> None:
             text("UPDATE documents SET status = 'failed' WHERE user_id = :u"), {"u": world.user_a}
         )
         await s.commit()
-        assert await active_doc_ids(s, world.user_a) == []
+        assert await active_doc_ids(s, world.user_a, embed_model=world.embedder.embed_model) == []
     assert await world.retriever().candidates(world.user_a, "Terraform") == []
+
+
+async def test_documents_from_another_embedder_are_excluded(world: World) -> None:
+    class OtherEmbedder(CountingEmbedder):
+        embed_model = "other:v2:1024"
+
+    other = OtherEmbedder()
+    async with world.sm() as s:
+        assert await active_doc_ids(s, world.user_a, embed_model=other.embed_model) == []
+    r = Retriever(world.sm, other, NoopReranker(), mode="hybrid", k=20, rrf_k=60, top_n=6)
+    assert await r.candidates(world.user_a, "Terraform") == []
+    assert other.query_calls == 0
 
 
 async def test_no_documents_returns_empty_without_embedding(world: World) -> None:

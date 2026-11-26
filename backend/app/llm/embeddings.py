@@ -11,6 +11,7 @@ from typing import Any, Protocol
 from botocore.exceptions import BotoCoreError, ClientError
 
 from app.core.errors import ProviderError
+from app.llm.errors import log_provider_failure
 
 _TOKEN = re.compile(r"[a-z0-9+#.]+")
 _MAX_CONCURRENCY = 4
@@ -18,6 +19,11 @@ _MAX_CONCURRENCY = 4
 
 class Embedder(Protocol):
     dimensions: int
+
+    @property
+    def embed_model(self) -> str:
+        """``provider:model:dims``; vectors from different identifiers are not comparable."""
+        ...
 
     async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]: ...
 
@@ -29,6 +35,10 @@ class HashEmbedder:
 
     def __init__(self, dimensions: int = 1024) -> None:
         self.dimensions = dimensions
+
+    @property
+    def embed_model(self) -> str:
+        return f"hash:v1:{self.dimensions}"
 
     def _embed(self, text: str) -> list[float]:
         vec = [0.0] * self.dimensions
@@ -54,6 +64,10 @@ class BedrockTitanEmbedder:
         self._model_id = model_id
         self.dimensions = dimensions
 
+    @property
+    def embed_model(self) -> str:
+        return f"bedrock:{self._model_id}:{self.dimensions}"
+
     def _invoke(self, text: str) -> list[float]:
         try:
             resp = self._client.invoke_model(
@@ -65,9 +79,12 @@ class BedrockTitanEmbedder:
                 accept="application/json",
             )
             embedding: list[float] = json.loads(resp["body"].read())["embedding"]
-            return embedding
-        except (ClientError, BotoCoreError, KeyError, TypeError, ValueError):
+            if len(embedding) != self.dimensions:
+                raise ValueError("unexpected embedding length")
+        except (ClientError, BotoCoreError, KeyError, TypeError, ValueError) as exc:
+            log_provider_failure("bedrock", exc)
             raise ProviderError("bedrock") from None
+        return embedding
 
     async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
         sem = asyncio.Semaphore(_MAX_CONCURRENCY)

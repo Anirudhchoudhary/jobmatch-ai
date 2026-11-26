@@ -29,6 +29,7 @@ from app.retrieval.service import Retriever
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_QUESTIONS = REPO_ROOT / "evals" / "retrieval" / "questions.json"
 DEFAULT_OUT = REPO_ROOT / "var" / "retrieval_baseline.offline.json"
+COMMITTED_DIR = REPO_ROOT / "evals"
 ALL_MODES = ("vector", "hybrid", "hybrid+rerank")
 K = 5
 
@@ -119,8 +120,22 @@ def render_table(report: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _guard_committed_output(out: Path, providers: Providers) -> None:
+    """Only real (Bedrock) embeddings may write under evals/: that baseline is committed."""
+    if out.resolve().is_relative_to(COMMITTED_DIR.resolve()) and not (
+        providers.embedder.embed_model.startswith("bedrock:")
+    ):
+        print(
+            f"refusing to write {out}: files under evals/ are committed baselines and need "
+            "EMBEDDER_PROVIDER=bedrock (use `make retrieval-eval-live`); "
+            "offline runs write to var/ instead.",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+
+
 async def _run(
-    args: argparse.Namespace, questions: list[dict[str, str]], providers: Providers | None
+    args: argparse.Namespace, questions: list[dict[str, str]], providers: Providers
 ) -> dict[str, Any]:
     settings = get_settings()
     modes = [m.strip() for m in args.modes.split(",") if m.strip()]
@@ -134,7 +149,7 @@ async def _run(
                 modes=modes,
                 questions=questions,
                 sessionmaker=async_sessionmaker(engine, expire_on_commit=False),
-                providers=providers or get_providers(),
+                providers=providers,
                 settings=settings,
                 blobs_dir=Path(tmp),
             )
@@ -148,9 +163,11 @@ def main(argv: list[str] | None = None, *, providers: Providers | None = None) -
     parser.add_argument("--questions", default=str(DEFAULT_QUESTIONS))
     parser.add_argument("--out", default=str(DEFAULT_OUT))
     args = parser.parse_args(argv)
+    out = Path(args.out)
+    providers = providers or get_providers()
+    _guard_committed_output(out, providers)
     questions = cast(list[dict[str, str]], json.loads(Path(args.questions).read_text()))
     report = asyncio.run(_run(args, questions, providers))
-    out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, indent=2) + "\n")
     print(render_table(report))

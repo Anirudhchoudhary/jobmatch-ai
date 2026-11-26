@@ -97,6 +97,7 @@ async def test_ingest_event_sequence(monkeypatch: pytest.MonkeyPatch, tmp_path: 
         {"doc_type": "jd", "text": "x", "upload_key": "k"},
         {"doc_type": "resume", "text": "x"},
         {"doc_type": "other", "text": "x"},
+        {"doc_type": "jd", "text": "x" * 80_001},
     ],
 )
 def test_document_request_validation(body: dict[str, Sequence[str] | str]) -> None:

@@ -46,3 +46,10 @@ def test_validation_error_does_not_echo_secret_values(monkeypatch: pytest.Monkey
         get_settings()
     assert "fake-value-do-not-leak" not in str(exc.value)
     assert "fake-timeout-do-not-leak" not in str(exc.value)
+
+
+def test_embed_dimensions_must_match_schema(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://u:p@h/db")
+    monkeypatch.setenv("EMBED_DIMENSIONS", "512")
+    with pytest.raises(ValidationError, match="EMBED_DIMENSIONS must be 1024"):
+        get_settings()

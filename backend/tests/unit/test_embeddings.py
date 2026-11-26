@@ -8,6 +8,7 @@ import pytest
 from botocore.config import Config
 from botocore.response import StreamingBody
 from botocore.stub import Stubber
+from structlog.testing import capture_logs
 
 from app.core.errors import ProviderError
 from app.llm.embeddings import BedrockTitanEmbedder, HashEmbedder
@@ -107,3 +108,32 @@ async def test_titan_malformed_response_becomes_provider_error() -> None:
         )
         with pytest.raises(ProviderError):
             await BedrockTitanEmbedder(client, MODEL, 2).embed_query("x")
+
+
+def test_embed_model_identifiers() -> None:
+    assert HashEmbedder().embed_model == "hash:v1:1024"
+    assert BedrockTitanEmbedder(_client(), MODEL, 1024).embed_model == f"bedrock:{MODEL}:1024"
+
+
+async def test_titan_wrong_vector_length_becomes_provider_error() -> None:
+    client = _client()
+    with Stubber(client) as stub:
+        stub.add_response(
+            "invoke_model", {"body": _body([1.0, 0.0, 0.0]), "contentType": "application/json"}
+        )
+        with pytest.raises(ProviderError):
+            await BedrockTitanEmbedder(client, MODEL, 2).embed_query("x")
+
+
+async def test_titan_error_logs_code_without_message() -> None:
+    client = _client()
+    with Stubber(client) as stub, capture_logs() as logs:
+        stub.add_client_error("invoke_model", "ThrottlingException", "ZQXSLOWDOWN")
+        with pytest.raises(ProviderError):
+            await BedrockTitanEmbedder(client, MODEL, 2).embed_query("ZQXINPUT")
+    (entry,) = [e for e in logs if e["event"] == "provider_call_failed"]
+    assert entry["log_level"] == "warning"
+    assert entry["provider"] == "bedrock"
+    assert entry["error_type"] == "ThrottlingException"  # botocore's modeled ClientError subclass
+    assert entry["error_code"] == "ThrottlingException"
+    assert "ZQXSLOWDOWN" not in str(logs) and "ZQXINPUT" not in str(logs)

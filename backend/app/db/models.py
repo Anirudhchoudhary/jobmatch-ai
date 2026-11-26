@@ -56,6 +56,8 @@ class Document(Base):
     content_sha256: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, server_default="processing")
     error_code: Mapped[str | None] = mapped_column(Text)
+    # provider:model:dims of the embedder that produced this document's chunk vectors.
+    embed_model: Mapped[str] = mapped_column(Text, server_default="unknown")
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
