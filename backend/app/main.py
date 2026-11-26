@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from pydantic import ValidationError
 
 from app import __version__
+from app.api.documents import router as documents_router
 from app.api.health import router as health_router
 from app.api.uploads import local_put_router
 from app.api.uploads import router as uploads_router
@@ -49,6 +50,7 @@ def create_app() -> FastAPI:
     install_error_handlers(app)
     app.include_router(health_router)
     app.include_router(uploads_router)
+    app.include_router(documents_router)
     if _env() in ("local", "ci"):
         app.include_router(local_put_router)
     return app

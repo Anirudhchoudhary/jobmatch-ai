@@ -41,3 +41,31 @@ async def test_sse_stream_hides_unexpected_errors() -> None:
     assert len(out) == 1
     assert b'"code":"internal"' in out[0]
     assert b"a@b.io" not in out[0]
+
+
+async def test_sse_stream_logs_app_errors_without_message() -> None:
+    from structlog.testing import capture_logs
+
+    from app.core.errors import AppError
+
+    async def provider_fail() -> AsyncIterator[tuple[str, BaseModel]]:
+        raise ProviderError("bedrock")
+        yield  # pragma: no cover
+
+    async def plain_fail() -> AsyncIterator[tuple[str, BaseModel]]:
+        raise AppError("encrypted_pdf", "secret text", 422)
+        yield  # pragma: no cover
+
+    with capture_logs() as logs:
+        await _collect(provider_fail())
+        await _collect(plain_fail())
+
+    warnings = [entry for entry in logs if entry["log_level"] == "warning"]
+    assert len(warnings) == 2
+    assert warnings[0]["code"] == "provider_unavailable"
+    assert warnings[0]["status"] == 503
+    assert warnings[0]["provider"] == "bedrock"
+    assert "request_id" in warnings[0]
+    assert warnings[1]["code"] == "encrypted_pdf"
+    assert "provider" not in warnings[1]
+    assert all("message" not in entry and "secret text" not in str(entry) for entry in warnings)

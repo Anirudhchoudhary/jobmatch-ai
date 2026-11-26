@@ -7,7 +7,7 @@ import structlog
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app.core.errors import AppError
+from app.core.errors import AppError, ProviderError
 from app.core.request_id import request_id_var
 
 log = structlog.get_logger(__name__)
@@ -31,6 +31,14 @@ async def sse_stream(events: AsyncIterator[tuple[str, BaseModel]]) -> AsyncItera
         async for name, data in events:
             yield sse_event(name, data)
     except AppError as exc:
+        extra = {"provider": exc.provider} if isinstance(exc, ProviderError) else {}
+        log.warning(
+            "sse_app_error",
+            code=exc.code,
+            status=exc.status,
+            request_id=request_id_var.get(),
+            **extra,
+        )
         yield _error_event(exc.code, exc.message)
     except Exception as exc:  # noqa: BLE001
         log.error("sse_stream_error", request_id=request_id_var.get(), exc_info=exc)
