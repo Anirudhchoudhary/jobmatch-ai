@@ -9,6 +9,7 @@ Nodes are small and talk to the client only through ``get_stream_writer()`` cust
 
 import time
 from collections.abc import AsyncIterator, Sequence
+from html import escape
 from typing import Any, Literal, TypedDict, cast
 from uuid import UUID
 
@@ -101,7 +102,7 @@ def build_messages(
     prompt: Prompt, question: str, chunks: Sequence[RetrievedChunk]
 ) -> list[BaseMessage]:
     context = format_context(label_context(chunks))
-    human = f"<context>\n{context}\n</context>\n\nQuestion: {question}"
+    human = f"<context>\n{context}\n</context>\n\nQuestion: {escape(question, quote=False)}"
     return [SystemMessage(prompt.text), HumanMessage(human)]
 
 

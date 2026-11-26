@@ -88,7 +88,7 @@ def build_guardrails(
         upload=stage("upload", [*injection(), *bedrock()]),
         chat_input=stage(
             "chat_input",
-            [*injection(), *topic, *bedrock(), *step(settings.guard_pii, PiiGuard)],
+            [*step(settings.guard_pii, PiiGuard), *injection(), *topic, *bedrock()],
         ),
         output=stage("output", groundedness),
     )

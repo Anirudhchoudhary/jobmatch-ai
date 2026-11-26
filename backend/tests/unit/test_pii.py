@@ -80,3 +80,55 @@ async def test_pii_guard_reports_sorted_kinds_and_allows_clean_text() -> None:
     assert res.redacted == ("[EMAIL] [PHONE]", "clean")
     clean = await PiiGuard().check(GuardContext("upload", ("clean",), "r1", None))
     assert clean.action == "allow" and clean.redacted is None
+
+
+@pytest.mark.usefixtures("presidio_engine")
+async def test_pii_guard_leaves_bare_locations_alone() -> None:
+    q = "Is the role based in London or remote?"
+    res = await PiiGuard().check(GuardContext("chat_input", (q,), "r1", uuid4()))
+    assert res.action == "allow" and res.redacted is None
+
+
+@pytest.mark.usefixtures("presidio_engine")
+async def test_pii_guard_still_redacts_street_addresses() -> None:
+    ctx = GuardContext("chat_input", ("Lives at 42 Baker Street",), "r1", uuid4())
+    res = await PiiGuard().check(ctx)
+    assert res.action == "redact"
+    assert res.redacted == ("Lives at [ADDRESS]",)
+
+
+@pytest.mark.usefixtures("presidio_engine")
+def test_log_redaction_keeps_broad_locations() -> None:
+    assert redact_pii("Moved to Seattle") == "Moved to [ADDRESS]"
+
+
+def test_analyzer_is_built_once_under_concurrency(monkeypatch: pytest.MonkeyPatch) -> None:
+    import threading
+    import time
+
+    built: list[int] = []
+
+    def slow_build() -> object:
+        built.append(1)
+        time.sleep(0.05)
+        return object()
+
+    monkeypatch.setattr(pii, "_analyzer_instance", None)
+    monkeypatch.setattr(pii, "_build_analyzer", slow_build)
+    threads = [threading.Thread(target=pii._analyzer) for _ in range(5)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(built) == 1
+
+
+@pytest.mark.usefixtures("presidio_engine")
+def test_logging_inside_presidio_does_not_recurse(monkeypatch: pytest.MonkeyPatch) -> None:
+    class LoggingAnalyzer:
+        def analyze(self, **_k: object) -> list[object]:
+            redact_pii("spacy logged this text")  # what the log processor does
+            return []
+
+    monkeypatch.setattr(pii, "_analyzer", LoggingAnalyzer)
+    assert redact_pii("plain words here") == "plain words here"

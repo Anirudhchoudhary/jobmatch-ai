@@ -6,8 +6,10 @@ This module must not import settings; ``configure_logging`` selects the engine.
 """
 
 import re
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
-from functools import cache
 from typing import TYPE_CHECKING, Literal
 from urllib.parse import unquote
 
@@ -18,6 +20,12 @@ if TYPE_CHECKING:
 
 PiiKind = Literal["EMAIL", "PHONE", "ADDRESS"]
 PiiEngine = Literal["regex", "presidio"]
+# "broad" also redacts bare locations (cities); "street" only street addresses.
+PiiScope = Literal["broad", "street"]
+_ENTITIES: dict[PiiScope, list[str]] = {
+    "broad": ["LOCATION", "STREET_ADDRESS"],
+    "street": ["STREET_ADDRESS"],
+}
 
 _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}")
 # Optional +country, digits separated by whitespace, parentheses, dots or dashes.
@@ -34,6 +42,9 @@ _SPACY_MODEL = "en_core_web_sm"
 _log = structlog.get_logger(__name__)
 _engine: PiiEngine = "regex"
 _degraded = False
+_analyzer_lock = threading.Lock()
+_analyzer_instance: "AnalyzerEngine | None" = None
+_reentry = threading.local()
 
 
 @dataclass(frozen=True)
@@ -50,8 +61,35 @@ def set_pii_engine(engine: PiiEngine) -> None:
     _degraded = False
 
 
-@cache
 def _analyzer() -> "AnalyzerEngine":
+    """The shared analyzer, built once even when threads race on the first call."""
+    global _analyzer_instance
+    with _analyzer_lock:
+        if _analyzer_instance is None:
+            with _regex_only_here():
+                _analyzer_instance = _build_analyzer()
+        return _analyzer_instance
+
+
+@contextmanager
+def _regex_only_here() -> Iterator[None]:
+    """Presidio and spaCy log while loading and analysing, and our log processor redacts what
+    is logged. Nested redaction on this thread therefore uses regexes only, which avoids both
+    unbounded recursion and waiting on the lock this thread holds."""
+    _reentry.active = True
+    try:
+        yield
+    finally:
+        _reentry.active = False
+
+
+def warm_up() -> None:
+    """Build the Presidio analyzer now (a no-op for the regex engine)."""
+    if _engine == "presidio":
+        _analyzer()
+
+
+def _build_analyzer() -> "AnalyzerEngine":
     from presidio_analyzer import AnalyzerEngine, Pattern, PatternRecognizer, RecognizerRegistry
     from presidio_analyzer.nlp_engine import NlpEngineProvider
 
@@ -82,8 +120,10 @@ def _regex_spans(text: str) -> list[PiiSpan]:
     return spans
 
 
-def _presidio_spans(text: str) -> list[PiiSpan]:
-    results = _analyzer().analyze(text=text, language="en", entities=["LOCATION", "STREET_ADDRESS"])
+def _presidio_spans(text: str, scope: PiiScope) -> list[PiiSpan]:
+    analyzer = _analyzer()
+    with _regex_only_here():
+        results = analyzer.analyze(text=text, language="en", entities=_ENTITIES[scope])
     return [PiiSpan("ADDRESS", r.start, r.end) for r in results]
 
 
@@ -91,6 +131,7 @@ def _wants_presidio(text: str) -> bool:
     return (
         _engine == "presidio"
         and not _degraded
+        and not getattr(_reentry, "active", False)
         and any(c.isspace() for c in text)
         and any(c.isalpha() for c in text)
     )
@@ -108,20 +149,20 @@ def _merge(spans: list[PiiSpan]) -> list[PiiSpan]:
     return merged
 
 
-def find_pii(text: str) -> list[PiiSpan]:
-    """Return merged, non-overlapping PII spans in ``text``."""
+def find_pii(text: str, scope: PiiScope = "broad") -> list[PiiSpan]:
+    """Return merged, non-overlapping PII spans in ``text`` (``scope`` as in ``PiiScope``)."""
     global _degraded
     spans = _regex_spans(text)
     if _wants_presidio(text):
         try:
-            spans += _presidio_spans(text)
+            spans += _presidio_spans(text, scope)
         except Exception as exc:  # logging must never crash
             _degraded = True
             _log.error("pii_engine_degraded", error_type=type(exc).__name__)
     return _merge(spans)
 
 
-def redact_pii(text: str) -> str:
+def redact_pii(text: str, scope: PiiScope = "broad") -> str:
     """Replace emails, phones and addresses in ``text`` with placeholders.
 
     Percent-encoded text (e.g. URL query strings) is URL-decoded first so encoded
@@ -131,7 +172,7 @@ def redact_pii(text: str) -> str:
         text = unquote(text)
     out: list[str] = []
     pos = 0
-    for span in find_pii(text):
+    for span in find_pii(text, scope):
         out.append(text[pos : span.start])
         out.append(f"[{span.kind}]")
         pos = span.end

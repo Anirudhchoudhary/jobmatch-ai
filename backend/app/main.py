@@ -1,5 +1,6 @@
 """FastAPI app factory."""
 
+import asyncio
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -19,6 +20,7 @@ from app.api.uploads import local_put_router
 from app.api.uploads import router as uploads_router
 from app.core.errors import install_error_handlers
 from app.core.logging import configure_logging
+from app.core.pii import warm_up
 from app.core.request_id import RequestIdMiddleware
 from app.core.settings import get_settings
 from app.db.engine import get_engine
@@ -48,6 +50,8 @@ def _env() -> str:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    if _pii_engine() == "presidio":
+        await asyncio.to_thread(warm_up)  # first use would otherwise load spaCy mid-request
     yield
     # Dispose only an engine that was actually created; never create one just to dispose it.
     if get_engine.cache_info().currsize:

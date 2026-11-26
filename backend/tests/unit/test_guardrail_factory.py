@@ -22,7 +22,7 @@ def _names(pipeline: GuardrailPipeline) -> list[str]:
 def test_offline_has_only_rules_and_pii(monkeypatch: pytest.MonkeyPatch) -> None:
     g = build_guardrails(_settings(monkeypatch), NullRecorder(), models=None, bedrock_client=None)
     assert _names(g.upload) == ["injection_rules"]
-    assert _names(g.chat_input) == ["injection_rules", "pii"]
+    assert _names(g.chat_input) == ["pii", "injection_rules"]
     assert _names(g.output) == ["groundedness"]
     assert g.output.steps[0].guard.provider == "self"
 
@@ -36,10 +36,10 @@ def test_claude_guards_present_with_models(monkeypatch: pytest.MonkeyPatch) -> N
     )
     assert _names(g.upload) == ["injection_rules", "injection_classifier"]
     assert _names(g.chat_input) == [
+        "pii",
         "injection_rules",
         "injection_classifier",
         "topic",
-        "pii",
     ]
     assert [(s.guard.name, s.guard.provider) for s in g.output.steps] == [
         ("groundedness", "anthropic")
@@ -78,5 +78,5 @@ def test_bedrock_steps_present_when_enabled(monkeypatch: pytest.MonkeyPatch) -> 
         bedrock_client=client,
     )
     assert _names(g.upload) == ["injection_rules", "bedrock_guardrails"]
-    assert _names(g.chat_input) == ["injection_rules", "bedrock_guardrails", "pii"]
+    assert _names(g.chat_input) == ["pii", "injection_rules", "bedrock_guardrails"]
     assert g.upload.steps[-1].mode == "enforce"
