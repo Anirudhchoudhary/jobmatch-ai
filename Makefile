@@ -2,7 +2,7 @@ UV ?= uv
 RUN = cd backend && $(UV) run
 RUN2 = && $(UV) run
 
-.PHONY: install lint fmt typecheck test test-integration
+.PHONY: install lint fmt typecheck test test-integration env
 
 install:
 	cd backend && $(UV) sync
@@ -21,3 +21,6 @@ test:
 
 test-integration:
 	$(RUN) pytest -m integration
+
+env:
+	cd backend && $(UV) run python scripts/gen_env.py --secret-id $${SECRET_ID:-jobmatch/dev} --out ../.env
