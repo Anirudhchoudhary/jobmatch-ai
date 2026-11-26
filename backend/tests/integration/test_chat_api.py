@@ -22,6 +22,7 @@ from app.main import create_app
 from tests.fixtures.documents import JD, RESUME
 from tests.fixtures.pdfs import make_pdf
 from tests.fixtures.sse import parse_sse
+from tests.fixtures.structured import ladder
 
 pytestmark = pytest.mark.integration
 
@@ -81,6 +82,7 @@ async def env(engine: AsyncEngine, tmp_path: Path) -> AsyncIterator[Env]:
         HashEmbedder(),
         NoopReranker(),
         GenericFakeChatModel(messages=iter([AIMessage("Kafka [r1]")])),
+        ladder(),
     )
     app.dependency_overrides[get_current_user_id] = lambda: user_id
     app.dependency_overrides[get_sessionmaker] = lambda: sm
@@ -140,7 +142,9 @@ async def test_chat_ignores_documents_from_another_embedder(env: Env) -> None:
         embed_model = "other:v2:1024"
 
     old = env.holder["providers"]  # type: ignore[attr-defined]
-    env.holder["providers"] = Providers(OtherEmbedder(), old.reranker, old.chat_model)  # type: ignore[attr-defined]
+    env.holder["providers"] = Providers(
+        OtherEmbedder(), old.reranker, old.chat_model, old.structured_models
+    )  # type: ignore[attr-defined]
     events = await env.post("/api/stream/chat", {"question": "What Python work has she done?"})
     name, done = events[-1]
     assert name == "done"

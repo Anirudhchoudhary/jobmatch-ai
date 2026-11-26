@@ -78,3 +78,18 @@ async def test_fake_chat_returns_fresh_messages(monkeypatch: pytest.MonkeyPatch)
     b = await m.ainvoke([HumanMessage("hi")])
     assert a is not b
     assert a.id != b.id
+
+
+def test_structured_models_ladder(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", DB)
+    fake = get_providers().structured_models
+    assert isinstance(fake, tuple)
+    assert len(fake) == 2
+    get_providers.cache_clear()
+    monkeypatch.setenv("LLM_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test123")
+    get_settings.cache_clear()
+    models = get_providers().structured_models
+    assert tuple(m.model for m in models) == ("claude-haiku-5-5", "claude-sonnet-5-5")  # type: ignore[attr-defined]
+    assert all(m.max_tokens == 4096 for m in models)  # type: ignore[attr-defined]
+    get_providers.cache_clear()

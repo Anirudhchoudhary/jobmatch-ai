@@ -18,6 +18,7 @@ class Providers:
     embedder: Embedder
     reranker: Reranker
     chat_model: BaseChatModel
+    structured_models: tuple[BaseChatModel, BaseChatModel]
 
 
 @lru_cache
@@ -41,4 +42,8 @@ def get_providers() -> Providers:
         reranker = BedrockReranker(agent_client, s.effective_rerank_arn)
     else:
         reranker = NoopReranker()
-    return Providers(embedder, reranker, make_chat_model(s))
+    structured = (
+        make_chat_model(s, model=s.chat_model, max_tokens=s.structured_max_tokens),
+        make_chat_model(s, model=s.strong_chat_model, max_tokens=s.structured_max_tokens),
+    )
+    return Providers(embedder, reranker, make_chat_model(s), structured)

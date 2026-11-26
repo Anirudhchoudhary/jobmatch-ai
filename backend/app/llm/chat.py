@@ -18,13 +18,15 @@ def _fake_replies() -> Iterator[AIMessage]:
     return (AIMessage(content=FAKE_ANSWER) for _ in count())
 
 
-def make_chat_model(settings: Settings) -> BaseChatModel:
+def make_chat_model(
+    settings: Settings, *, model: str | None = None, max_tokens: int | None = None
+) -> BaseChatModel:
     if settings.llm_provider == "anthropic":
         if settings.anthropic_api_key is None:  # Settings validator already guarantees this
             raise ValueError("anthropic_api_key is required")
         return ChatAnthropic(
-            model=settings.chat_model,
-            max_tokens=settings.chat_max_tokens,
+            model=model or settings.chat_model,
+            max_tokens=max_tokens or settings.chat_max_tokens,
             timeout=settings.llm_timeout_s,
             max_retries=2,
             api_key=settings.anthropic_api_key,

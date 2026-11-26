@@ -1,0 +1,97 @@
+import anthropic
+import httpx
+import pytest
+from langchain_core.messages import HumanMessage
+from pydantic import BaseModel
+from structlog.testing import capture_logs
+
+from app.core.errors import ProviderError
+from app.llm.structured import StructuredOutputError, pick_start_index, run_structured
+from tests.fixtures.structured import ScriptedStructuredModel
+
+
+class Out(BaseModel):
+    n: int
+
+
+MSGS = [HumanMessage("go")]
+
+
+async def test_first_attempt_success() -> None:
+    m = ScriptedStructuredModel([{"n": 1}])
+    r = await run_structured(Out, MSGS, models=[m], step="t")
+    assert (r.value.n, r.model_index, r.attempts) == (1, 0, 1)
+
+
+async def test_retry_feeds_back_errors() -> None:
+    m = ScriptedStructuredModel([{"n": "x"}, {"n": 2}])
+    r = await run_structured(Out, MSGS, models=[m], step="t")
+    assert (r.value.n, r.attempts) == (2, 2)
+    last = m.calls[1][-1]
+    assert isinstance(last, HumanMessage)
+    assert "invalid" in str(last.content)
+    assert len(m.calls[1]) == len(MSGS) + 2
+
+
+async def test_semantic_validate_retries() -> None:
+    m = ScriptedStructuredModel([{"n": 0}, {"n": 3}])
+    r = await run_structured(
+        Out,
+        MSGS,
+        models=[m],
+        step="t",
+        validate=lambda o: [] if o.n > 0 else ["n must be positive"],
+    )
+    assert r.value.n == 3
+    assert "n must be positive" in str(m.calls[1][-1].content)
+
+
+async def test_escalates_then_raises_model_output_invalid() -> None:
+    a = ScriptedStructuredModel([{"n": "x"}] * 2)
+    b = ScriptedStructuredModel([{"n": "x"}] * 2)
+    with pytest.raises(StructuredOutputError) as exc:
+        await run_structured(Out, MSGS, models=[a, b], step="t")
+    assert exc.value.code == "model_output_invalid"
+    assert exc.value.status == 502
+    assert (len(a.calls), len(b.calls)) == (2, 2)
+
+    a = ScriptedStructuredModel([{"n": "x"}] * 2)
+    b = ScriptedStructuredModel([{"n": 5}])
+    r = await run_structured(Out, MSGS, models=[a, b], step="t")
+    assert (r.value.n, r.model_index) == (5, 1)
+
+
+async def test_start_index_skips_primary() -> None:
+    a = ScriptedStructuredModel([])
+    b = ScriptedStructuredModel([{"n": 1}])
+    r = await run_structured(Out, MSGS, models=[a, b], step="t", start_index=1)
+    assert len(a.calls) == 0
+    assert r.model_index == 1
+
+
+async def test_provider_error_not_retried() -> None:
+    err = anthropic.APIConnectionError(request=httpx.Request("POST", "https://x"))
+    m = ScriptedStructuredModel([err, {"n": 1}])
+    with pytest.raises(ProviderError):
+        await run_structured(Out, MSGS, models=[m], step="t")
+    assert len(m.calls) == 1
+
+
+def test_pick_start_index() -> None:
+    assert pick_start_index([HumanMessage("x" * 30_000)], 24_000) == 1
+    assert pick_start_index([HumanMessage("short")], 24_000) == 0
+
+
+async def test_logs_have_no_content() -> None:
+    m = ScriptedStructuredModel([{"n": 0}, {"n": 1}])
+    with capture_logs() as logs:
+        await run_structured(
+            Out,
+            MSGS,
+            models=[m],
+            step="t",
+            validate=lambda o: ["SECRETQUOTE"] if o.n == 0 else [],
+        )
+    assert "SECRETQUOTE" in str(m.calls[1][-1].content)
+    assert logs
+    assert "SECRETQUOTE" not in str(logs)
