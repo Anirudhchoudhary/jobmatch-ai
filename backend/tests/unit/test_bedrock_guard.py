@@ -127,7 +127,7 @@ async def test_none_allows_and_sends_pinned_params() -> None:
     assert (res.action, res.reason) == ("allow", "")
 
 
-async def test_undetected_entities_are_ignored() -> None:
+async def test_intervened_with_nothing_detected_is_flagged() -> None:
     quiet = {
         "contentPolicy": {
             "filters": [
@@ -139,7 +139,57 @@ async def test_undetected_entities_are_ignored() -> None:
     with Stubber(client) as stub:
         stub.add_response("apply_guardrail", _resp("GUARDRAIL_INTERVENED", [quiet]), _params("hi"))
         res = await _guard(client).check(_ctx("hi"))
-    assert res.action == "allow"
+    assert (res.action, res.reason, res.items, res.redacted) == (
+        "flag",
+        "bedrock:intervened",
+        (0,),
+        None,
+    )
+
+
+async def test_pii_without_outputs_is_flagged() -> None:
+    client = _client()
+    with Stubber(client) as stub:
+        stub.add_response("apply_guardrail", _resp("GUARDRAIL_INTERVENED", [PII]), _params("a"))
+        res = await _guard(client).check(_ctx("a"))
+    assert (res.action, res.reason, res.items) == ("flag", "bedrock:intervened", (0,))
+
+
+async def test_topic_policy_intervention_is_flagged() -> None:
+    topic = {
+        "topicPolicy": {
+            "topics": [{"name": "t", "type": "DENY", "action": "BLOCKED", "detected": True}]
+        }
+    }
+    client = _client()
+    with Stubber(client) as stub:
+        stub.add_response("apply_guardrail", _resp("NONE"), _params("ok"))
+        stub.add_response(
+            "apply_guardrail", _resp("GUARDRAIL_INTERVENED", [topic], "x"), _params("off")
+        )
+        res = await _guard(client).check(_ctx("ok", "off"))
+    assert (res.action, res.reason, res.items) == ("flag", "bedrock:intervened", (1,))
+
+
+async def test_pii_blocked_blocks_item() -> None:
+    blocked = {
+        "sensitiveInformationPolicy": {
+            "regexes": [],
+            "piiEntities": [{"match": "x", "type": "EMAIL", "action": "BLOCKED", "detected": True}],
+        }
+    }
+    client = _client()
+    with Stubber(client) as stub:
+        stub.add_response(
+            "apply_guardrail", _resp("GUARDRAIL_INTERVENED", [blocked], "leak"), _params("a")
+        )
+        res = await _guard(client).check(_ctx("a"))
+    assert (res.action, res.reason, res.items, res.redacted) == (
+        "block",
+        "bedrock:pii_blocked",
+        (0,),
+        None,
+    )
 
 
 async def test_empty_texts_make_no_calls() -> None:
