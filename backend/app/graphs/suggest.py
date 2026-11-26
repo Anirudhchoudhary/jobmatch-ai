@@ -108,7 +108,11 @@ def build_suggest_graph(analyst: Analyst, *, limit: int) -> SuggestGraph:
         return {"drafts": drafts}
 
     async def validate(state: SuggestState) -> dict[str, Any]:
-        kept, rejected = validate_suggestions(state["drafts"], state["labelled"], state["targets"])
+        # Guard against every requirement (missing ones included), not just the targets.
+        every = [m.requirement for m in state["skills"]]
+        kept, rejected = validate_suggestions(
+            state["drafts"], state["labelled"], state["targets"], guard=every
+        )
         return {"suggestions": kept, "rejected": rejected}
 
     async def finalize(state: SuggestState) -> dict[str, Any]:

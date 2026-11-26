@@ -138,10 +138,15 @@ def validate_suggestions(
     drafts: Sequence[SuggestionDraft],
     labelled: Mapping[str, RetrievedChunk],
     targets: Sequence[Requirement],
+    *,
+    guard: Sequence[Requirement] | None = None,
 ) -> tuple[list[BulletSuggestion], int]:
     """Keep drafts whose original is quoted from the cited resume chunk and whose rewrite adds
-    nothing unsupported: no new numbers or terms, and no target skill word the chunk lacks.
-    ``target_skills`` keeps only names of the targets. Every dropped draft is a rejection."""
+    nothing unsupported: no new numbers or terms, and no skill word of ``guard`` (default:
+    ``targets``) the chunk lacks. Pass every requirement as ``guard`` so a missing skill
+    cannot be written in. ``target_skills`` keeps only names of the targets. Every dropped
+    draft is a rejection."""
+    guard_terms = targets if guard is None else guard
     kept: list[BulletSuggestion] = []
     for d in drafts:
         chunk = labelled.get(d.source)
@@ -150,7 +155,7 @@ def validate_suggestions(
             and chunk.doc_type == "resume"
             and quote_in_chunk(d.original, chunk.text)
             and not unsupported_terms(d.rewritten, chunk.text)
-            and not new_target_terms(d.rewritten, chunk.text, targets)
+            and not new_target_terms(d.rewritten, chunk.text, guard_terms)
         ):
             kept.append(
                 BulletSuggestion(
