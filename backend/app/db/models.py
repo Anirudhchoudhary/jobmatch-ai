@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
@@ -10,10 +11,11 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Text,
+    UniqueConstraint,
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import TSVECTOR
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 EMBEDDING_DIM = 1024
@@ -85,4 +87,24 @@ class Chunk(Base):
     tsv: Mapped[str | None] = mapped_column(
         TSVECTOR, Computed("to_tsvector('english', text)", persisted=True)
     )
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class Analysis(Base):
+    """A match analysis per (resume doc, JD doc, analyst); cascades away with either document."""
+
+    __tablename__ = "analyses"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "resume_doc_id", "jd_doc_id", "analyst", name="uq_analyses_docs"
+        ),
+        Index("ix_analyses_user", "user_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    resume_doc_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"))
+    jd_doc_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"))
+    analyst: Mapped[str] = mapped_column(Text)
+    result: Mapped[dict[str, Any]] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
