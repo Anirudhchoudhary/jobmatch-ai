@@ -13,6 +13,7 @@ from app.api.chat import router as chat_router
 from app.api.documents import router as documents_router
 from app.api.health import router as health_router
 from app.api.samples import router as samples_router
+from app.api.suggestions import router as suggestions_router
 from app.api.uploads import local_put_router
 from app.api.uploads import router as uploads_router
 from app.core.errors import install_error_handlers
@@ -57,6 +58,7 @@ def create_app() -> FastAPI:
     app.include_router(chat_router)
     app.include_router(samples_router)
     app.include_router(analyses_router)
+    app.include_router(suggestions_router)
     if _env() in ("local", "ci"):
         app.include_router(local_put_router)
     return app
