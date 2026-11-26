@@ -55,3 +55,11 @@ def test_classifier_uses_low_effort(monkeypatch: Any) -> None:
     )
     model = make_chat_model(settings, effort="low")
     assert model.reasoning_effort == "low"  # type: ignore[attr-defined]
+
+
+async def test_empty_texts_allow_without_call() -> None:
+    model = ScriptedStructuredModel([])
+    for guard in (InjectionClassifier([model], PROMPT), TopicClassifier([model], PROMPT)):
+        result = await guard.check(_ctx())
+        assert (result.action, result.latency_ms) == ("allow", 0)
+    assert model.calls == []

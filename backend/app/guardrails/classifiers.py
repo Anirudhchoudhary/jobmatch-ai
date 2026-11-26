@@ -13,11 +13,11 @@ from app.guardrails.base import GuardContext, GuardrailResult
 from app.llm.prompts import Prompt
 from app.llm.structured import run_structured
 
-_LABEL = re.compile(r"^t(\d+)$")
+_LABEL = re.compile(r"t([0-9]+)")
 
 
 class FlaggedItem(BaseModel):
-    label: str = Field(pattern=r"^t\d+$")
+    label: str = Field(pattern=r"^t[0-9]+$")
 
 
 class InjectionVerdicts(BaseModel):
@@ -43,6 +43,8 @@ class InjectionClassifier:
         self._prompt = prompt
 
     async def check(self, ctx: GuardContext) -> GuardrailResult:
+        if not ctx.texts:
+            return GuardrailResult(self.name, self.provider, "allow", "", 0)
         start = time.perf_counter()
         result = await run_structured(
             InjectionVerdicts,
@@ -56,7 +58,7 @@ class InjectionClassifier:
         )
         indexes: set[int] = set()
         for item in result.value.flagged:
-            match = _LABEL.match(item.label)
+            match = _LABEL.fullmatch(item.label)
             if match and 1 <= int(match.group(1)) <= len(ctx.texts):
                 indexes.add(int(match.group(1)) - 1)
         latency_ms = int((time.perf_counter() - start) * 1000)
@@ -81,6 +83,8 @@ class TopicClassifier:
         self._prompt = prompt
 
     async def check(self, ctx: GuardContext) -> GuardrailResult:
+        if not ctx.texts:
+            return GuardrailResult(self.name, self.provider, "allow", "", 0)
         start = time.perf_counter()
         result = await run_structured(
             TopicVerdict,

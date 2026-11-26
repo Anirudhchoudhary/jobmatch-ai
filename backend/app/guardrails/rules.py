@@ -6,7 +6,13 @@ import unicodedata
 
 from app.guardrails.base import GuardContext, GuardrailResult
 
-_ZERO_WIDTH = dict.fromkeys(map(ord, "​‌‍⁠﻿"))
+_ZERO_WIDTH = dict.fromkeys(
+    map(
+        ord,
+        "\u200b\u200c\u200d\u2060\ufeff\u00ad\u200e\u200f"
+        "\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069",
+    )
+)
 
 
 def normalize_for_rules(text: str) -> str:
@@ -19,9 +25,11 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
     for name, rx in (
         (
             "ignore_instructions",
-            r"\b(ignore|disregard|forget|override)\b.{0,40}"
+            r"\b(ignore|disregard|forget)\b.{0,40}"
             r"\b(previous|prior|above|earlier|all|any|your)\b.{0,20}"
-            r"\b(instructions?|prompts?|rules?|directions?)\b",
+            r"\b(instructions?|prompts?|rules?|directions?)\b"
+            r"|\boverride\b.{0,40}"
+            r"\b(previous|prior|above|earlier|all|any|your)\b.{0,20}\b(instructions?|prompts?)\b",
         ),
         (
             "reveal_prompt",
@@ -30,7 +38,10 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
         ),
         (
             "role_override",
-            r"\byou are now\b|\bact as (an? )?(unfiltered|jailbroken|dan)\b|\bdeveloper mode\b",
+            r"\byou are now (an? )?(unfiltered|jailbroken|dan|evil|unrestricted)\b"
+            r"|\bact as (an? )?(unfiltered|jailbroken|dan)\b"
+            r"|\b(enable|enter|activate) (dan|jailbreak|developer) mode\b"
+            r".{0,40}\b(no|without|ignore) (rules|restrictions|filters)\b",
         ),
         (
             "fake_tags",
@@ -38,8 +49,9 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
         ),
         (
             "score_override",
-            r"\b(give|rate|score|mark)\b.{0,30}\b(this|the|my)?\s*(candidate|resume|applicant)\b"
-            r".{0,30}\b(100|perfect|highest|top)\b",
+            r"\b(give|rate|score|mark)\b.{0,30}\b(candidate|resume|applicant)\b.{0,30}"
+            r"(\b(100|perfect|highest) (score|rating|marks?)\b|\b100( out of 100|/100|%)"
+            r"|\bfull marks\b|\b10 ?/ ?10\b)",
         ),
     )
 )
