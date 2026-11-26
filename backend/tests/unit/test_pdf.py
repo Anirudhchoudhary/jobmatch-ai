@@ -53,3 +53,26 @@ def test_validate_jd_text_bounds():
         validate_jd_text("a" * 20_001)
     assert long.value.code == "jd_too_long"
     assert validate_jd_text("  " + "ok" * 30 + "  ") == "ok" * 30
+
+
+def test_jd_text_accepts_exact_bounds():
+    assert len(validate_jd_text("a" * 50)) == 50
+    assert len(validate_jd_text("a" * 20_000)) == 20_000
+
+
+def test_validate_pdf_accepts_exact_limits():
+    data = make_pdf(["p"] * 10)
+    validate_pdf(data, max_bytes=len(data), max_pages=10)
+    with pytest.raises(AppError) as exc:
+        validate_pdf(data, max_bytes=len(data) - 1, max_pages=10)
+    assert exc.value.code == "too_large"
+
+
+def test_normalization_crlf_nfc_and_blank_runs():
+    out = validate_jd_text("line one  \r\né two\n\n\n\n\nthree " + "x" * 50)
+    assert "\r" not in out
+    assert "é two" in out
+    assert "é" not in out
+    assert "two\n\n\nthree" in out
+    assert "\n\n\n\n" not in out
+    assert out.startswith("line one\n")

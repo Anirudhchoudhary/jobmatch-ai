@@ -12,6 +12,12 @@ from pypdf import PdfReader
 
 from app.core.errors import AppError
 
+# Silence pypdf noise once at import (no per-call global toggling, so thread-safe).
+_pypdf_logger = logging.getLogger("pypdf")
+_pypdf_logger.addHandler(logging.NullHandler())
+_pypdf_logger.propagate = False
+warnings.filterwarnings("ignore", module=r"pypdf(\..*)?")
+
 _BLANK_RUNS = re.compile(r"\n{4,}")
 
 
@@ -30,25 +36,19 @@ def _normalize(text: str) -> str:
 
 def _open(data: bytes, *, max_bytes: int, max_pages: int) -> PdfReader:
     if len(data) > max_bytes:
-        raise AppError("too_large", "That file is too large. The limit is 5 MB.", 413)
+        limit_mb = max_bytes / 1_048_576
+        raise AppError("too_large", f"That file is too large. The limit is {limit_mb:g} MB.", 413)
     if not data.startswith(b"%PDF-"):
         raise AppError("not_pdf", "Please upload a PDF file.")
-    pypdf_logger = logging.getLogger("pypdf")
-    previous_disabled = pypdf_logger.disabled
-    pypdf_logger.disabled = True
     try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            reader = PdfReader(BytesIO(data))
-            if reader.is_encrypted:
-                raise AppError("encrypted_pdf", "Password-protected PDFs aren't supported.")
-            page_count = len(reader.pages)
+        reader = PdfReader(BytesIO(data))
+        if reader.is_encrypted:
+            raise AppError("encrypted_pdf", "Password-protected PDFs aren't supported.")
+        page_count = len(reader.pages)
     except AppError:
         raise
     except Exception as exc:
         raise AppError("corrupt_pdf", "We couldn't read that PDF. It may be corrupt.") from exc
-    finally:
-        pypdf_logger.disabled = previous_disabled
     if page_count > max_pages:
         raise AppError("too_many_pages", f"That PDF has too many pages. The limit is {max_pages}.")
     return reader
@@ -60,17 +60,10 @@ def validate_pdf(data: bytes, *, max_bytes: int, max_pages: int) -> None:
 
 def parse_pdf(data: bytes, *, max_bytes: int, max_pages: int) -> ParsedPdf:
     reader = _open(data, max_bytes=max_bytes, max_pages=max_pages)
-    pypdf_logger = logging.getLogger("pypdf")
-    previous_disabled = pypdf_logger.disabled
-    pypdf_logger.disabled = True
     try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            pages = [page.extract_text() or "" for page in reader.pages]
+        pages = [page.extract_text() or "" for page in reader.pages]
     except Exception as exc:
         raise AppError("corrupt_pdf", "We couldn't read that PDF. It may be corrupt.") from exc
-    finally:
-        pypdf_logger.disabled = previous_disabled
     text = _normalize("\n\n".join(pages))
     if not text:
         raise AppError(
