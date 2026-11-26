@@ -15,6 +15,8 @@ from app.core.settings import get_settings
 from app.db.engine import get_sessionmaker, make_engine
 from app.db.models import Chunk, User
 from app.graphs.citations import REFUSAL_TEXT
+from app.guardrails.factory import build_guardrails, get_guardrails
+from app.guardrails.recorder import DbRecorder
 from app.ingestion.blobs import LocalBlobStore, get_blob_store
 from app.llm.embeddings import HashEmbedder
 from app.llm.providers import Providers, get_providers
@@ -89,6 +91,9 @@ async def env(engine: AsyncEngine, tmp_path: Path) -> AsyncIterator[Env]:
     app.dependency_overrides[get_current_user_id] = lambda: user_id
     app.dependency_overrides[get_sessionmaker] = lambda: sm
     app.dependency_overrides[get_blob_store] = lambda: blobs
+    app.dependency_overrides[get_guardrails] = lambda: build_guardrails(
+        get_settings(), DbRecorder(sm), models=None, bedrock_client=None
+    )
     holder = {"providers": providers}
     app.dependency_overrides[get_providers] = lambda: holder["providers"]
     transport = httpx.ASGITransport(app=app)
@@ -108,13 +113,16 @@ async def test_chat_api_end_to_end(env: Env) -> None:
         "/api/stream/chat", {"question": "  What Python and FastAPI work has she done?  "}
     )
     names = [n for n, _ in events]
-    assert names[:3] == ["progress"] * 3
+    assert ("progress", {"step": "checking_input"}) in events
+    assert names[:4] == ["progress"] * 4
     assert "token" in names
+    assert names[-2:] == ["verdict", "done"]
     name, done = events[-1]
     assert name == "done"
     assert done["answer"] == "Kafka [r1]"
     assert done["refused"] is False
     assert done["request_id"]
+    assert "guardrails" in done and done["blocked"] is False
     citations = done["citations"]
     assert isinstance(citations, list) and len(citations) == 1
     assert citations[0]["doc_type"] == "resume"
