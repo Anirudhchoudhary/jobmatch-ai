@@ -1,6 +1,4 @@
 import asyncio
-import json
-import re
 from collections.abc import AsyncIterator, Sequence
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -24,20 +22,14 @@ from app.llm.providers import Providers, get_providers
 from app.llm.rerank import NoopReranker
 from app.main import create_app
 from app.schemas.documents import DocumentRequest, ProgressEvent
+from tests.fixtures.documents import JD, RESUME
 from tests.fixtures.pdfs import make_pdf
+from tests.fixtures.sse import parse_sse
 
 pytestmark = pytest.mark.integration
 
 SECTIONS = {"Summary", "Experience", "Education", "Skills", "Projects", "Certifications", "Other"}
-RESUME = (
-    "Jane Doe\nSummary\nBackend engineer with eight years of Python experience.\n\n"
-    "Experience\nAcme Corp - Senior Engineer. Built FastAPI services and Postgres pipelines.\n"
-    "Led a team of four engineers and shipped a search platform.\n\n"
-    "Education\nBSc Computer Science, State University.\n\n"
-    "Skills\nPython, SQL, FastAPI, Docker, AWS, Kubernetes, Terraform.\n"
-)
 RESUME_B = RESUME.replace("Acme Corp", "Globex Inc").replace("Jane Doe", "John Roe")
-JD = "We are hiring a Python backend engineer to build FastAPI services and data pipelines. " * 3
 
 
 class CountingEmbedder(HashEmbedder):
@@ -53,15 +45,6 @@ class CountingEmbedder(HashEmbedder):
 class FailingEmbedder(HashEmbedder):
     async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
         raise ProviderError("bedrock")
-
-
-def parse_sse(body: str) -> list[tuple[str, dict[str, object]]]:
-    out = []
-    for block in body.strip().split("\n\n"):
-        m = re.fullmatch(r"event: (\S+)\ndata: (.*)", block, re.S)
-        assert m, block
-        out.append((m.group(1), json.loads(m.group(2))))
-    return out
 
 
 class Env:
