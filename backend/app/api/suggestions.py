@@ -10,13 +10,14 @@ from app.api.deps import get_current_user_id
 from app.core.settings import get_settings
 from app.db.engine import get_sessionmaker
 from app.graphs.suggest import suggest
+from app.guardrails.allowance import allowance
 from app.llm.providers import Providers, get_providers
 from app.schemas.match import BulletSuggestions, SuggestionRequest
 
 router = APIRouter(prefix="/api/suggestions", tags=["suggestions"])
 
 
-@router.post("")
+@router.post("", dependencies=[Depends(allowance("suggestions"))])
 async def create_suggestions(
     user_id: Annotated[UUID, Depends(get_current_user_id)],
     sessionmaker: Annotated[async_sessionmaker[AsyncSession], Depends(get_sessionmaker)],

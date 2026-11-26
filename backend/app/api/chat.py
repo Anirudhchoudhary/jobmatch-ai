@@ -10,6 +10,7 @@ from app.api.deps import get_current_user_id
 from app.api.sse import sse_response
 from app.core.settings import Settings, get_settings
 from app.graphs.chat import ChatState, build_chat_graph, chat_events
+from app.guardrails.allowance import allowance
 from app.llm.prompts import load_prompt
 from app.llm.providers import Providers, get_providers
 from app.retrieval.service import Retriever, get_retriever
@@ -18,7 +19,7 @@ from app.schemas.chat import ChatRequest
 router = APIRouter(prefix="/api/stream", tags=["chat"])
 
 
-@router.post("/chat")
+@router.post("/chat", dependencies=[Depends(allowance("chats"))])
 async def stream_chat(
     body: ChatRequest,
     user_id: Annotated[UUID, Depends(get_current_user_id)],

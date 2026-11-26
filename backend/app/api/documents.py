@@ -11,6 +11,7 @@ from app.api.deps import get_current_user_id
 from app.api.sse import sse_response
 from app.core.settings import Settings, get_settings
 from app.db.engine import get_sessionmaker
+from app.guardrails.allowance import allowance
 from app.ingestion.blobs import BlobStore, get_blob_store
 from app.ingestion.service import ingest_document
 from app.llm.providers import Providers, get_providers
@@ -19,7 +20,7 @@ from app.schemas.documents import DocumentRequest
 router = APIRouter(prefix="/api/stream", tags=["documents"])
 
 
-@router.post("/documents")
+@router.post("/documents", dependencies=[Depends(allowance("uploads"))])
 async def stream_documents(
     body: DocumentRequest,
     user_id: Annotated[UUID, Depends(get_current_user_id)],

@@ -7,7 +7,7 @@ per-(documents, analyst) cache and persistence around the graph.
 """
 
 import time
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from typing import Any, TypedDict, cast
 from uuid import UUID
 
@@ -203,6 +203,7 @@ async def analysis_events(
     user_id: UUID,
     sessionmaker: async_sessionmaker[AsyncSession],
     analyst: Analyst,
+    before_fresh: Callable[[], Awaitable[None]] | None = None,
 ) -> AsyncIterator[tuple[str, BaseModel]]:
     """``progress`` events then ``done`` (a ``MatchAnalysis``). No DB session is held while
     the analyst runs; the analysis is saved only after the graph succeeds."""
@@ -221,6 +222,9 @@ async def analysis_events(
         _log_completed(done, start)
         yield "done", done
         return
+
+    if before_fresh is not None:
+        await before_fresh()
 
     final = initial_state(user_id, docs)
     graph_start = time.perf_counter()
