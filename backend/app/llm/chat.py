@@ -2,6 +2,7 @@
 
 from collections.abc import Iterator
 from itertools import count
+from typing import Literal
 
 from langchain_anthropic import ChatAnthropic
 from langchain_core.language_models import BaseChatModel
@@ -24,6 +25,7 @@ def make_chat_model(
     model: str | None = None,
     max_tokens: int | None = None,
     timeout_s: float | None = None,
+    effort: Literal["low", "medium"] = "medium",
 ) -> BaseChatModel:
     if settings.llm_provider == "anthropic":
         if settings.anthropic_api_key is None:  # Settings validator already guarantees this
@@ -34,6 +36,6 @@ def make_chat_model(
             timeout=timeout_s if timeout_s is not None else settings.llm_timeout_s,
             max_retries=2,
             api_key=settings.anthropic_api_key,
-            effort="medium",
+            effort=effort,
         )
     return GenericFakeChatModel(messages=_fake_replies())
