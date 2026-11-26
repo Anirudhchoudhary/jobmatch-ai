@@ -61,6 +61,35 @@ def _outcome(result: GuardrailResult, stage: Stage, mode: Mode) -> GuardrailOutc
     )
 
 
+async def record_outcome(
+    recorder: GuardrailRecorder, ctx: GuardContext, outcome: GuardrailOutcome
+) -> None:
+    """Log the event (``guardrail_error`` for errors, else ``guardrail_fired``) and persist it.
+
+    The single place guardrail events are emitted. Never raises: a failed audit write is
+    logged with the error type only, so the request still completes.
+    """
+    log.info(
+        "guardrail_error" if outcome.action == "error" else "guardrail_fired",
+        guardrail=outcome.guardrail,
+        provider=outcome.provider,
+        stage=outcome.stage,
+        action=outcome.action,
+        mode=outcome.mode,
+        reason=outcome.reason,
+        item_count=len(outcome.items) or len(ctx.texts),
+    )
+    try:
+        await recorder.record(ctx, outcome)
+    except Exception as exc:
+        log.warning(
+            "guardrail_record_failed",
+            guardrail=outcome.guardrail,
+            stage=outcome.stage,
+            error_type=type(exc).__name__,
+        )
+
+
 class GuardrailPipeline:
     def __init__(
         self, stage: Stage, steps: Sequence[GuardStep], recorder: GuardrailRecorder
@@ -76,17 +105,6 @@ class GuardrailPipeline:
     @property
     def steps(self) -> tuple[GuardStep, ...]:
         return self._steps
-
-    async def _record(self, ctx: GuardContext, outcome: GuardrailOutcome) -> None:
-        try:
-            await self._recorder.record(ctx, outcome)
-        except Exception as exc:
-            log.warning(
-                "guardrail_record_failed",
-                guardrail=outcome.guardrail,
-                stage=self._stage,
-                error_type=type(exc).__name__,
-            )
 
     async def run(self, ctx: GuardContext) -> PipelineResult:
         blocked = False
@@ -110,14 +128,8 @@ class GuardrailPipeline:
                     latency_ms=int((time.perf_counter() - started) * 1000),
                     items=[],
                 )
-                log.warning(
-                    "guardrail_error",
-                    guardrail=guard.name,
-                    stage=self._stage,
-                    error_type=type(exc).__name__,
-                )
                 outcomes.append(outcome)
-                await self._record(ctx, outcome)
+                await record_outcome(self._recorder, ctx, outcome)
                 continue
 
             outcome = _outcome(result, self._stage, step.mode)
@@ -125,17 +137,7 @@ class GuardrailPipeline:
             if result.action == "allow":
                 continue
 
-            log.info(
-                "guardrail_fired",
-                guardrail=outcome.guardrail,
-                provider=outcome.provider,
-                stage=self._stage,
-                action=outcome.action,
-                mode=step.mode,
-                reason=outcome.reason,
-                item_count=len(result.items) or len(ctx.texts),
-            )
-            await self._record(ctx, outcome)
+            await record_outcome(self._recorder, ctx, outcome)
             if step.mode == "monitor":
                 continue
 
@@ -177,20 +179,6 @@ async def record_hallucination_block(
         latency_ms=0,
         items=[],
     )
-    log.info(
-        "guardrail_fired",
-        guardrail=outcome.guardrail,
-        provider=outcome.provider,
-        stage=outcome.stage,
-        action=outcome.action,
-        mode=outcome.mode,
-        reason=reason,
-        item_count=0,
+    await record_outcome(
+        recorder, GuardContext("output", (), request_id_var.get(), user_id), outcome
     )
-    ctx = GuardContext("output", (), request_id_var.get(), user_id)
-    try:
-        await recorder.record(ctx, outcome)
-    except Exception as exc:
-        log.warning(
-            "guardrail_record_failed", guardrail=outcome.guardrail, error_type=type(exc).__name__
-        )

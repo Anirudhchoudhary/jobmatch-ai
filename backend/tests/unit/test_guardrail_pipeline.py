@@ -1,7 +1,10 @@
 from uuid import uuid4
 
-from app.guardrails.base import Action, GuardContext, GuardrailResult
-from app.guardrails.pipeline import GuardrailPipeline, GuardStep
+import pytest
+from structlog.testing import capture_logs
+
+from app.guardrails.base import Action, GuardContext, GuardrailOutcome, GuardrailResult
+from app.guardrails.pipeline import GuardrailPipeline, GuardStep, record_outcome
 from tests.fixtures.guardrails import ListRecorder, RaisingGuard, StaticGuard
 
 
@@ -143,3 +146,51 @@ async def test_outcome_reason_is_redacted() -> None:
     )
     await pipe.run(_ctx())
     assert rec.records[0][1].reason == "x [EMAIL]"
+
+
+async def test_record_outcome_logs_and_records() -> None:
+    rec = ListRecorder()
+    outcome = _outcome_for("flag")
+    with capture_logs() as logs:
+        await record_outcome(rec, _ctx("a", "b"), outcome)
+    assert rec.records[0][1] is outcome
+    (fired,) = [e for e in logs if e["event"] == "guardrail_fired"]
+    assert fired["item_count"] == 2 and fired["reason"] == "r"
+    assert {"guardrail", "provider", "stage", "action", "mode"} <= fired.keys()
+
+
+async def test_record_outcome_swallows_recorder_failure() -> None:
+    class Failing:
+        async def record(self, ctx: GuardContext, outcome: GuardrailOutcome) -> None:
+            raise RuntimeError("secret a@b.co")
+
+    with capture_logs() as logs:
+        await record_outcome(Failing(), _ctx(), _outcome_for("block"))
+    failed = next(e for e in logs if e["event"] == "guardrail_record_failed")
+    assert failed["error_type"] == "RuntimeError"
+    assert "a@b.co" not in str(logs)
+
+
+def _mk(action: Action, items: list[int]) -> GuardrailOutcome:
+    return GuardrailOutcome(
+        guardrail="g",
+        provider="fake",
+        stage="chat_input",
+        action=action,
+        mode="enforce",
+        reason="r",
+        latency_ms=1,
+        items=items,
+    )
+
+
+def _outcome_for(action: Action) -> GuardrailOutcome:
+    return _mk(action, [])
+
+
+@pytest.mark.parametrize("items,expected", [([0, 1, 2], 3), ([], 2)])
+async def test_item_count_rule_is_shared(items: list[int], expected: int) -> None:
+    outcome = _mk("flag", items)
+    with capture_logs() as logs:
+        await record_outcome(ListRecorder(), _ctx("a", "b"), outcome)
+    assert logs[0]["item_count"] == expected

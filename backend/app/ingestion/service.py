@@ -20,7 +20,7 @@ from app.core.settings import Settings
 from app.db.models import Chunk, Document
 from app.guardrails.base import GuardContext, GuardrailOutcome
 from app.guardrails.factory import Guardrails
-from app.guardrails.pipeline import GuardrailPipeline, PipelineResult
+from app.guardrails.pipeline import GuardrailPipeline, PipelineResult, record_outcome
 from app.ingestion.blobs import BlobStore, assert_owned_key
 from app.ingestion.chunking import ChunkDraft, chunk_jd, chunk_resume
 from app.ingestion.pdf import parse_pdf, validate_jd_text
@@ -96,7 +96,7 @@ async def _record_parse_failure(
 async def _record_file_validation(
     pipeline: GuardrailPipeline, user_id: UUID, error_code: str
 ) -> None:
-    """A rejected file is a guardrail event too (the recorder never raises)."""
+    """A rejected file is a guardrail event too (``record_outcome`` never raises)."""
     outcome = GuardrailOutcome(
         guardrail="file_validation",
         provider="self",
@@ -107,14 +107,8 @@ async def _record_file_validation(
         latency_ms=0,
         items=[],
     )
-    log.info("guardrail_fired", guardrail="file_validation", stage="upload", reason=error_code)
     ctx = GuardContext("upload", (), request_id_var.get(), user_id)
-    try:
-        await pipeline.recorder.record(ctx, outcome)
-    except Exception as exc:  # noqa: BLE001
-        log.warning(
-            "guardrail_record_failed", guardrail="file_validation", error_type=type(exc).__name__
-        )
+    await record_outcome(pipeline.recorder, ctx, outcome)
 
 
 def _quarantine_reasons(scan: PipelineResult, count: int) -> dict[int, str]:
