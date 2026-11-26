@@ -9,7 +9,9 @@ from pydantic import ValidationError
 
 from app import __version__
 from app.api.health import router as health_router
+from app.core.errors import install_error_handlers
 from app.core.logging import configure_logging
+from app.core.request_id import RequestIdMiddleware
 from app.core.settings import get_settings
 from app.db.engine import get_engine
 
@@ -34,6 +36,8 @@ def create_app() -> FastAPI:
     # Runs at import time under uvicorn, after its dictConfig, so this override is intentional.
     configure_logging(_log_level())
     app = FastAPI(title="JobMatch AI", version=__version__, lifespan=lifespan)
+    app.add_middleware(RequestIdMiddleware)
+    install_error_handlers(app)
     app.include_router(health_router)
     return app
 
