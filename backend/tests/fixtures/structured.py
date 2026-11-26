@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 from langchain_core.callbacks import CallbackManagerForLLMRun
+from langchain_core.exceptions import OutputParserException
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
@@ -47,7 +48,10 @@ class ScriptedStructuredModel(BaseChatModel):
             try:
                 parsed = schema.model_validate(item)
             except ValidationError as exc:
-                error = exc
+                # Mirror PydanticOutputParser: the ValidationError is wrapped, text embeds output.
+                msg = f"Failed to parse from completion {raw.text}. Got: {exc}"
+                error = OutputParserException(msg)
+                error.__cause__ = exc
             return {"raw": raw, "parsed": parsed, "parsing_error": error}
 
         def sync(_: Any) -> dict[str, Any]:

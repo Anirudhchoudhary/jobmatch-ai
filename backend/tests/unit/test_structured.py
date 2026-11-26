@@ -1,7 +1,9 @@
 import anthropic
 import httpx
 import pytest
-from langchain_core.messages import HumanMessage
+from langchain_core.exceptions import OutputParserException
+from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.runnables import RunnableLambda
 from pydantic import BaseModel
 from structlog.testing import capture_logs
 
@@ -30,6 +32,8 @@ async def test_retry_feeds_back_errors() -> None:
     last = m.calls[1][-1]
     assert isinstance(last, HumanMessage)
     assert "invalid" in str(last.content)
+    assert "\n- n: " in str(last.content)
+    assert "no structured output" not in str(last.content)
     assert len(m.calls[1]) == len(MSGS) + 2
 
 
@@ -95,3 +99,23 @@ async def test_logs_have_no_content() -> None:
     assert "SECRETQUOTE" in str(m.calls[1][-1].content)
     assert logs
     assert "SECRETQUOTE" not in str(logs)
+
+
+async def test_parser_exception_text_not_in_feedback() -> None:
+    class Leaky(ScriptedStructuredModel):
+        def with_structured_output(self, schema, **kw):  # type: ignore[no-untyped-def,override]
+            async def run(_: object) -> dict[str, object]:
+                self.calls.append(list(_))  # type: ignore[call-overload]
+                if len(self.calls) == 1:
+                    return {
+                        "raw": AIMessage("{}"),
+                        "parsed": None,
+                        "parsing_error": OutputParserException("SECRETCOMPLETION"),
+                    }
+                return {"raw": AIMessage("{}"), "parsed": Out(n=1), "parsing_error": None}
+
+            return RunnableLambda(lambda _: {}, afunc=run)
+
+    m = Leaky([])
+    await run_structured(Out, MSGS, models=[m], step="t")
+    assert "SECRETCOMPLETION" not in "".join(str(x.content) for x in m.calls[1])

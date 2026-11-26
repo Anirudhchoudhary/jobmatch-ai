@@ -6,7 +6,7 @@ from typing import Any
 
 import anthropic
 import structlog
-from langchain_core.exceptions import ModelError
+from langchain_core.exceptions import ModelError, OutputParserException
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from pydantic import BaseModel, ValidationError
@@ -43,10 +43,13 @@ def pick_start_index(messages: Sequence[BaseMessage], threshold_chars: int) -> i
 
 def _summarize(error: BaseException) -> list[str]:
     """Error locations and messages only: pydantic ``input`` values are never included."""
-    if isinstance(error, ValidationError):
+    # The real parser wraps ValidationError in OutputParserException (whose text embeds the
+    # completion), so unwrap the cause and never use str(error).
+    cause = error.__cause__ if isinstance(error, OutputParserException) else error
+    if isinstance(cause, ValidationError):
         return [
             f"{'.'.join(str(p) for p in e['loc']) or '(root)'}: {e['msg']}"
-            for e in error.errors(include_input=False, include_url=False, include_context=False)
+            for e in cause.errors(include_input=False, include_url=False, include_context=False)
         ]
     return ["output was invalid or could not be parsed"]
 

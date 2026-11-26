@@ -25,8 +25,8 @@ def make_chat_model(
         if settings.anthropic_api_key is None:  # Settings validator already guarantees this
             raise ValueError("anthropic_api_key is required")
         return ChatAnthropic(
-            model=model or settings.chat_model,
-            max_tokens=max_tokens or settings.chat_max_tokens,
+            model=model if model is not None else settings.chat_model,
+            max_tokens=max_tokens if max_tokens is not None else settings.chat_max_tokens,
             timeout=settings.llm_timeout_s,
             max_retries=2,
             api_key=settings.anthropic_api_key,
