@@ -84,9 +84,15 @@ def _regex_only_here() -> Iterator[None]:
 
 
 def warm_up() -> None:
-    """Build the Presidio analyzer now (a no-op for the regex engine)."""
-    if _engine == "presidio":
-        _analyzer()
+    """Build the Presidio analyzer now (a no-op for the regex engine). A load failure
+    degrades to regex for the process, exactly as a failure on first use would."""
+    global _degraded
+    if _engine == "presidio" and not _degraded:
+        try:
+            _analyzer()
+        except Exception as exc:  # startup must never fail because of the PII engine
+            _degraded = True
+            _log.error("pii_engine_degraded", error_type=type(exc).__name__)
 
 
 def _build_analyzer() -> "AnalyzerEngine":

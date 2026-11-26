@@ -132,3 +132,13 @@ def test_logging_inside_presidio_does_not_recurse(monkeypatch: pytest.MonkeyPatc
 
     monkeypatch.setattr(pii, "_analyzer", LoggingAnalyzer)
     assert redact_pii("plain words here") == "plain words here"
+
+
+def test_warm_up_failure_degrades_instead_of_raising(monkeypatch: pytest.MonkeyPatch) -> None:
+    set_pii_engine("presidio")
+    monkeypatch.setattr(pii, "_analyzer", _raise)
+    with structlog.testing.capture_logs() as logs:
+        pii.warm_up()  # must not raise: a missing spaCy model cannot stop the app starting
+        assert redact_pii("a@b.co in Seattle") == "[EMAIL] in Seattle"
+    degraded = [e for e in logs if e["event"] == "pii_engine_degraded"]
+    assert [e["error_type"] for e in degraded] == ["RuntimeError"]
