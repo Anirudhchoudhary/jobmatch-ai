@@ -59,3 +59,18 @@ def test_validation_error_does_not_echo_input() -> None:
     assert resp.status_code == 422
     assert resp.json()["error"]["code"] == "invalid_request"
     assert "a@b.io" not in resp.text
+
+
+def test_starlette_404_and_405_use_envelope() -> None:
+    client = _client()
+    missing = client.get("/nope")
+    assert missing.status_code == 404
+    assert missing.json()["error"] == {
+        "code": "not_found",
+        "message": "Not found.",
+        "request_id": missing.headers["x-request-id"],
+    }
+    wrong = client.post("/app-error")
+    assert wrong.status_code == 405
+    assert wrong.json()["error"]["code"] == "method_not_allowed"
+    assert wrong.headers["allow"] == "GET"

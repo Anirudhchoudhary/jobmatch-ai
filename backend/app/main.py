@@ -9,6 +9,8 @@ from pydantic import ValidationError
 
 from app import __version__
 from app.api.health import router as health_router
+from app.api.uploads import local_put_router
+from app.api.uploads import router as uploads_router
 from app.core.errors import install_error_handlers
 from app.core.logging import configure_logging
 from app.core.request_id import RequestIdMiddleware
@@ -22,6 +24,13 @@ def _log_level() -> str:
         return get_settings().log_level
     except ValidationError:
         return os.environ.get("LOG_LEVEL", "INFO")
+
+
+def _env() -> str:
+    try:
+        return get_settings().env
+    except ValidationError:
+        return os.environ.get("ENV", "local")
 
 
 @asynccontextmanager
@@ -39,6 +48,9 @@ def create_app() -> FastAPI:
     app.add_middleware(RequestIdMiddleware)
     install_error_handlers(app)
     app.include_router(health_router)
+    app.include_router(uploads_router)
+    if _env() in ("local", "ci"):
+        app.include_router(local_put_router)
     return app
 
 
