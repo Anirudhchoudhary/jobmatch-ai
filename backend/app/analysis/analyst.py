@@ -179,9 +179,8 @@ class ClaudeAnalyst:
                 for i, r in enumerate(requirements)
             ]
         )
-        extracted = _json(
-            [{"skill": s.skill, "evidence": [e.model_dump() for e in s.evidence]} for s in skills]
-        )
+        # Skill names only: evidence quotes stay out of the task data.
+        extracted = _json([{"skill": s.skill} for s in skills])
         task = (
             "Requirements (return exactly one match per index):\n"
             f"{reqs}\n\nSkills extracted from the resume (context):\n{extracted}"

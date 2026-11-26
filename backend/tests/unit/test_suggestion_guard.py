@@ -1,5 +1,7 @@
 from uuid import uuid4
 
+import pytest
+
 from app.analysis.grounding import unsupported_terms, validate_suggestions
 from app.retrieval.search import RetrievedChunk
 from app.schemas.match import SuggestionDraft
@@ -40,11 +42,34 @@ def test_unsupported_terms_details() -> None:
     assert unsupported_terms("GCP and C# work", src) == ["C#", "GCP"]
     # Whole words only: "Acme" does not support "Acm".
     assert unsupported_terms("Worked at Acm", "Worked at Acme") == ["Acm"]
-    # Bullet markers start a sentence.
-    assert (
-        unsupported_terms("- Shipped features\n* Wrote tests", "shipped features, wrote tests")
-        == []
-    )
+    # Only the text start and ".", "!" or "?" start a sentence: not bullets or newlines.
+    bullets = "- Shipped features\n* Wrote tests"
+    assert unsupported_terms(bullets, "shipped features, tests") == ["Wrote"]
+
+
+def test_unsupported_terms_colon_and_semicolon_do_not_start_sentences() -> None:
+    assert unsupported_terms("Stack: Kubernetes and Kafka", SOURCE) == ["Kubernetes"]
+    assert unsupported_terms("Built pipelines; Terraform managed infra", SOURCE) == ["Terraform"]
+
+
+def test_unsupported_terms_newline_does_not_start_sentence() -> None:
+    assert unsupported_terms("Built Kafka pipelines\nGoogle scale", SOURCE) == ["Google"]
+
+
+@pytest.mark.parametrize("value", ["1.5x", "3.5GB", "0.5s"])
+def test_unsupported_terms_decimal_with_unit_copied_verbatim(value: str) -> None:
+    text = f"Grew revenue {value}"
+    assert unsupported_terms(text, text) == []
+
+
+def test_unsupported_terms_new_decimal_with_unit_flagged() -> None:
+    assert unsupported_terms("Grew revenue 2.5x", "Grew revenue 1.5x") == ["2.5x"]
+
+
+def test_unsupported_terms_checks_slash_parts_and_possessives() -> None:
+    assert unsupported_terms("Built kafka/Kubernetes pipelines", SOURCE) == ["Kubernetes"]
+    assert unsupported_terms("AWS's Kafka pipelines", SOURCE) == ["AWS"]
+    assert unsupported_terms("Ran Acme's Kafka pipelines", SOURCE) == []
 
 
 def test_validate_suggestions_rejects_and_counts() -> None:

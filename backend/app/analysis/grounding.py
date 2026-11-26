@@ -16,13 +16,14 @@ from app.schemas.match import (
 )
 
 _WS = re.compile(r"\s+")
-# Numbers or money (spec regex), as whole tokens: "p95" or "2Mbps" are left to the term rule.
-_NUMBER = re.compile(r"(?<![\w$.,])\$?\d[\d,.]*[%kKmMbB]?(?!\w)")
+# Numbers or money (spec regex) as whole tokens. The possessive ``*+`` stops backtracking, so
+# "1.5x" or "3.5GB" never yields a partial "1" or "3"; such tokens are left to the term rule.
+_NUMBER = re.compile(r"(?<![\w$.,])\$?\d[\d,.]*+[%kKmMbB]?(?!\w)")
 _DIGIT_COMMA = re.compile(r"(?<=\d),(?=\d)")
 _TOKEN = re.compile(r"\S+")
 _EDGE = re.compile(r"^[^\w+#$%]+|[^\w+#$%]+$")
-_BULLETS = frozenset("-*•")
-_SENTENCE_END = frozenset(".!?:;")
+_POSSESSIVE = re.compile(r"['’]s$", re.IGNORECASE)
+_SENTENCE_END = frozenset(".!?")
 
 
 def normalize(text: str) -> str:
@@ -85,25 +86,20 @@ def _is_term(token: str, sentence_start: bool) -> bool:
 
 def _candidates(text: str) -> set[str]:
     """Numbers/money plus "terms": tokens with a digit, ``+`` or ``#``; ALL-CAPS tokens of 2+
-    chars; capitalized tokens that do not start a sentence (the text start, or after
-    ``.!?:;``, a newline or a bullet marker)."""
+    chars; capitalized tokens that do not start a sentence. A sentence starts at the first
+    token of the text or after a token ending in ``.``, ``!`` or ``?`` (not after newlines).
+    Tokens are split on ``/`` and lose a possessive ``'s`` before the checks."""
     found = {m.group().rstrip(".,") for m in _NUMBER.finditer(text)}
     at_start = True
-    prev_end = 0
     for m in _TOKEN.finditer(text):
         raw = m.group()
-        if "\n" in text[prev_end : m.start()]:
-            at_start = True
-        prev_end = m.end()
-        if raw in _BULLETS:
-            at_start = True
-            continue
-        if raw[0] in _BULLETS:
-            at_start = True
-        token = _EDGE.sub("", raw)
-        if token and _is_term(token, at_start):
-            found.add(token)
-        at_start = raw[-1] in _SENTENCE_END
+        parts = [_POSSESSIVE.sub("", _EDGE.sub("", p)) for p in raw.split("/")]
+        parts = [p for p in parts if p]
+        for i, part in enumerate(parts):
+            if _is_term(part, at_start and i == 0):
+                found.add(part)
+        if parts or raw[-1] in _SENTENCE_END:
+            at_start = raw[-1] in _SENTENCE_END
     return found
 
 

@@ -17,7 +17,15 @@ from app.schemas.match import (
 _REQ_SECTIONS = ("Requirements", "Nice to have")
 _SKIP_SECTIONS = frozenset({"About", "Benefits"})
 _MAX_REQUIREMENTS = 30
-_SKILL_CUT = re.compile(r",|\(|;| - ")
+# The brief's cut points, plus " or similar" so "Kafka or similar streaming systems" -> "Kafka".
+_SKILL_CUT = re.compile(r",|\(|;| - | or similar\b", re.IGNORECASE)
+_FILLER = re.compile(
+    r"^(?:hands-on experience with|experience with|deep knowledge of|knowledge of"
+    r"|familiarity with|proficiency in|strong|solid|\d+\+?\s*years?(?:\s+of)?)\s+",
+    re.IGNORECASE,
+)
+_BULLET_CHARS = "-*•"
+_MAX_SUGGESTIONS = 5
 _WORD = re.compile(r"[a-z0-9+#]+")
 _STOPWORDS = frozenset(
     {
@@ -34,8 +42,21 @@ def _lines(text: str) -> list[str]:
 
 
 def _skill(line: str) -> str:
+    """Cut at the first separator, drop trailing punctuation and leading filler phrases."""
     match = _SKILL_CUT.search(line)
-    return (line[: match.start()] if match else line)[:80].strip()
+    skill = (line[: match.start()] if match else line).strip().rstrip(".!?:;").strip()
+    while (stripped := _FILLER.sub("", skill, count=1)) != skill:
+        skill = stripped
+    return skill[:80].strip()
+
+
+def _bullet_line(text: str) -> str | None:
+    """The first bullet line (marker stripped), else the first non-heading line."""
+    lines = [line for line in _lines(text) if not line.startswith("#")]
+    bullet = next((line for line in lines if line[0] in _BULLET_CHARS), None)
+    if bullet is not None:
+        return bullet.lstrip(_BULLET_CHARS).strip() or None
+    return lines[0] if lines else None
 
 
 def _tokens(skill: str) -> list[str]:
@@ -60,7 +81,7 @@ class HeuristicAnalyst:
         out: list[RequirementDraft] = []
         for label, chunk in selected:
             for raw in _lines(chunk.text):
-                line = raw.lstrip("-*•").strip()
+                line = raw.lstrip(_BULLET_CHARS).strip()
                 skill = _skill(line)
                 if not skill:
                     continue
@@ -116,10 +137,12 @@ class HeuristicAnalyst:
     ) -> list[SuggestionDraft]:
         out: list[SuggestionDraft] = []
         for label, chunk in bullets.items():
-            lines = _lines(chunk.text)
-            if not lines:
+            if len(out) == _MAX_SUGGESTIONS:
+                break
+            line = _bullet_line(chunk.text)
+            if line is None:
                 continue
-            original = lines[0][:300]
+            original = line[:300]
             out.append(
                 SuggestionDraft(
                     source=label,
