@@ -12,15 +12,18 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.api.deps import get_current_user_id
 from app.core.errors import ProviderError
+from app.core.logging import configure_logging
 from app.core.settings import get_settings
 from app.db.engine import get_sessionmaker, make_engine
 from app.db.models import Chunk, Document, User
 from app.ingestion.blobs import LocalBlobStore, get_blob_store
+from app.ingestion.service import ingest_document
 from app.llm.chat import make_chat_model
 from app.llm.embeddings import HashEmbedder
 from app.llm.providers import Providers, get_providers
 from app.llm.rerank import NoopReranker
 from app.main import create_app
+from app.schemas.documents import DocumentRequest, ProgressEvent
 from tests.fixtures.pdfs import make_pdf
 
 pytestmark = pytest.mark.integration
@@ -238,16 +241,19 @@ async def test_invalid_request_is_422(env: Env) -> None:
 
 
 async def test_chunk_insert_failure_does_not_log_document_text(
-    env: Env, caplog: pytest.LogCaptureFixture
+    env: Env, capsys: pytest.CaptureFixture[str]
 ) -> None:
     secret = "ZQXSECRETRESUMETEXT"
     body = {"doc_type": "jd", "text": f"{secret} backend engineer role with Python.\x00 " * 3}
-    with caplog.at_level("DEBUG"):
-        events = await env.ingest(body)
+    configure_logging("DEBUG")
+    capsys.readouterr()
+    events = await env.ingest(body)
+    out = capsys.readouterr()
     name, data = events[-1]
     assert name == "error"
     assert data["code"] == "internal"
-    assert secret not in caplog.text
+    assert "sse_stream_error" in out.out  # the rendered JSON line was actually captured
+    assert secret not in out.out + out.err
     (doc,) = await env.docs()
     assert doc.status == "failed"
     assert doc.error_code == "internal"
@@ -262,3 +268,21 @@ async def test_concurrent_ingests_last_writer_wins(env: Env) -> None:
     statuses = sorted(d.status for d in await env.docs())
     assert statuses.count("ready") == 1
     assert "processing" not in statuses
+
+
+async def test_close_after_commit_does_not_downgrade_ready_document(env: Env) -> None:
+    gen = ingest_document(
+        user_id=env.user_id,
+        request=DocumentRequest(doc_type="jd", text=JD),
+        sessionmaker=env.sm,
+        blobs=env.blobs,
+        embedder=env.embedder,
+        settings=get_settings(),
+    )
+    async for _name, ev in gen:
+        if isinstance(ev, ProgressEvent) and (ev.step, ev.status) == ("storing", "done"):
+            break
+    await gen.aclose()
+    (doc,) = await env.docs()
+    assert doc.status == "ready"
+    assert doc.error_code is None

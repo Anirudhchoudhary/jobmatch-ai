@@ -43,7 +43,11 @@ async def _mark_failed(
             async with sessionmaker() as session:
                 await session.execute(
                     update(Document)
-                    .where(Document.id == doc_id, Document.user_id == user_id)
+                    .where(
+                        Document.id == doc_id,
+                        Document.user_id == user_id,
+                        Document.status == "processing",  # never downgrade a committed row
+                    )
                     .values(status="failed", error_code=error_code)
                 )
                 await session.commit()
