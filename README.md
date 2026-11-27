@@ -1,6 +1,6 @@
 # JobMatch AI
 
-JobMatch AI is a backend that matches resumes to jobs using LLMs and pgvector similarity search. This repository currently contains Phases 1 to 4: a FastAPI app with structured, PII-redacted logging, a Postgres + pgvector database, migrations and a health endpoint (Phase 1), plus resume/JD ingestion, hybrid retrieval with reranking and streamed, cited chat (Phase 2), plus grounded match analysis and resume bullet suggestions (Phase 3), plus guardrails around uploads, chat and model output (Phase 4).
+JobMatch AI is a backend that matches resumes to jobs using LLMs and pgvector similarity search. This repository currently contains Phases 1 to 5: a FastAPI app with structured, PII-redacted logging, a Postgres + pgvector database, migrations and a health endpoint (Phase 1), plus resume/JD ingestion, hybrid retrieval with reranking and streamed, cited chat (Phase 2), plus grounded match analysis and resume bullet suggestions (Phase 3), plus guardrails around uploads, chat and model output (Phase 4), plus request logging, cost tracking, a spend cap, a semantic cache and optional tracing (Phase 5).
 
 ## Prerequisites
 
@@ -161,7 +161,7 @@ By default (`LLM_PROVIDER=fake`, which is what `make run` uses) the analyst is a
 
 ### Retry and escalation
 
-Every structured model call asks for schema-constrained JSON. If the output does not validate, the same model is retried once with the validation errors as feedback. After two failed attempts on Haiku the call escalates to Sonnet, which also gets two attempts. If those fail too the request returns `model_output_invalid` (502). Prompts longer than 24,000 characters start on Sonnet directly. Structured calls allow 12,000 output tokens (`STRUCTURED_MAX_TOKENS`; adaptive thinking counts against it) and a 120 s timeout (`STRUCTURED_TIMEOUT_S`; chat keeps `LLM_TIMEOUT_S`). An answer cut off at the token limit (`stop_reason` `max_tokens`) is not retried on the same model: the call escalates at once, telling Sonnet to be concise. Skill extraction only gives the matcher context, so if it returns an unusable answer the analysis continues without it (logged as `skills_extraction_failed`); a provider error still fails the analysis. A provider error (API outage, rate limit) is not retried here and returns `provider_unavailable` (503); fallback providers come in a later phase.
+Every structured model call asks for schema-constrained JSON. If the output does not validate, the same model is retried once with the validation errors as feedback. After two failed attempts on Haiku the call escalates to Sonnet, which also gets two attempts. If those fail too the request returns `model_output_invalid` (502). Prompts longer than 24,000 characters start on Sonnet directly. Structured calls allow 12,000 output tokens (`STRUCTURED_MAX_TOKENS`; adaptive thinking counts against it) and a 120 s timeout (`STRUCTURED_TIMEOUT_S`; chat keeps `LLM_TIMEOUT_S`). An answer cut off at the token limit (`stop_reason` `max_tokens`) is not retried on the same model: the call escalates at once, telling Sonnet to be concise. Skill extraction only gives the matcher context, so if it returns an unusable answer the analysis continues without it (logged as `skills_extraction_failed`); a provider error still fails the analysis. A provider error that is not retryable, or that persists after the one-time fallback to the other model, returns `provider_unavailable` (503); see Fallback under Phase 5.
 
 ## Phase 4: guardrails
 
@@ -236,7 +236,7 @@ Cost is computed per LLM call from the token counts reported by the provider. Cl
 
 ### Spend cap
 
-`DAILY_SPEND_CAP_USD` (default 1.0) is a backstop. Before a chat, analysis, upload or suggestion request runs, the total `cost_usd` logged since 00:00 UTC is compared with the cap. At or over the cap the request is refused with HTTP 503, code `demo_at_capacity` and the message "The demo is at capacity today. Please try again tomorrow."; a `spend_cap` guardrail event is recorded. The environment variable cannot express "no cap", so set a large value to disable it.
+`DAILY_SPEND_CAP_USD` (default 1.0) is a backstop. Before a chat, upload, suggestion or fresh analysis request runs (cached analyses skip the check, because it runs only on a cache miss), the total `cost_usd` logged since 00:00 UTC is compared with the cap. At or over the cap the request is refused with HTTP 503, code `demo_at_capacity` and the message "The demo is at capacity today. Please try again tomorrow."; a `spend_cap` guardrail event is recorded. The environment variable cannot express "no cap", so set a large value to disable it.
 
 ### Semantic cache
 
