@@ -149,12 +149,16 @@ ensure_role() {
 }
 
 # Lambda environment: settings only, never secrets (those come from SECRET_ID at runtime).
+# MIN_RELEVANCE=0: Amazon Rerank 1.0 scores are not calibrated to 0..1 (measured ~0.004 for
+# the right chunk), so a fixed cutoff refuses every question; the chat prompt and the
+# groundedness guard handle "not in the documents". DB_CONNECT_TIMEOUT_S=10 covers a Neon
+# compute waking from scale-to-zero.
 function_environment() {
   jq -cn --arg bucket "$BUCKET" --arg secret_id "$SECRET_ID" --argjson extra "$1" '{Variables: ({
       ENV: "prod", SECRETS_SOURCE: "aws", SECRET_ID: $secret_id,
       LLM_PROVIDER: "anthropic", EMBEDDER_PROVIDER: "bedrock", RERANKER_PROVIDER: "bedrock",
       BLOB_BACKEND: "s3", UPLOADS_BUCKET: $bucket, EMAIL_SENDER: "resend",
-      PII_ENGINE: "presidio"} + $extra)}'
+      PII_ENGINE: "presidio", MIN_RELEVANCE: "0", DB_CONNECT_TIMEOUT_S: "10"} + $extra)}'
 }
 
 # ensure_function <name> <timeout seconds> <extra env JSON object>
