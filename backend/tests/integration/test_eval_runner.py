@@ -12,6 +12,7 @@ from app.db.engine import get_engine, get_sessionmaker
 from app.db.models import User
 from app.guardrails.factory import get_guardrails
 from app.llm.providers import get_providers
+from evals import runner
 from evals.dataset import EvalCase, render_resume_pdf
 from evals.runner import capture_logs, count_leaks, eval_settings, run_case
 
@@ -77,10 +78,11 @@ def _case(
 
 
 @pytest.fixture(autouse=True)
-def _restore_process_state() -> Iterator[None]:
+def _restore_process_state(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """`eval_settings` mutates os.environ and the lru caches by design (one profile per
     process); put both back so other tests are unaffected."""
     saved = dict(os.environ)
+    monkeypatch.setattr(runner, "_applied", None)
     yield
     os.environ.clear()
     os.environ.update(saved)

@@ -76,16 +76,26 @@ PROFILES: dict[str, dict[str, str]] = {
 }
 
 
+_applied: tuple[str, str] | None = None  # first (profile, variant); see eval_settings
+
+
 def eval_settings(profile: str, variant: str) -> Settings:
     """Settings for a profile and variant (variant overrides win).
 
     Also writes the overrides to `os.environ` and clears the cached getters; see the module
-    docstring for why nothing is restored."""
+    docstring for why nothing is restored. A second call with a different (profile, variant)
+    raises RuntimeError; the same pair is fine."""
+    global _applied
+    if _applied is not None and _applied != (profile, variant):
+        raise RuntimeError(
+            f"eval_settings already applied {_applied}; one profile/variant per process"
+        )
     overrides = {**PROFILES[profile], **VARIANTS[variant]}
     base = get_settings()
     settings = Settings.model_validate(
         {**base.model_dump(), **{k.lower(): v for k, v in overrides.items()}}
     )
+    _applied = (profile, variant)
     os.environ.update(overrides)
     for cached in (get_settings, get_providers, get_guardrails):
         cached.cache_clear()
