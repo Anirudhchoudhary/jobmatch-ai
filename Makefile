@@ -127,6 +127,7 @@ fe-test:
 fe-build:
 	cd frontend && npm run build
 
-# Needs `docker compose up -d --build --wait` + `make migrate` (offline API on :8000); starts next dev itself.
+# Needs the offline API on :8000, in this order: `make up migrate`, then `docker compose up -d --build --wait api`.
+# (The API healthcheck fails until migrated.) Starts next dev itself.
 fe-e2e:
 	cd frontend && npx playwright test

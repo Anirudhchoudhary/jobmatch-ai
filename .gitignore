@@ -24,3 +24,4 @@ frontend/out
 # playwright
 frontend/test-results
 frontend/playwright-report
+frontend/AGENTS.md

@@ -10,20 +10,22 @@ function codeOrNull(since: Date): string | null {
 }
 
 test("sign in, sample, analysis, chat, guardrails, reload, sign out", async ({ page }) => {
-  // Back-date a little so clock skew between host and container cannot hide the line.
-  const requestedAt = new Date(Date.now() - 5_000);
   const email = `e2e+${Date.now()}@example.com`;
 
   await page.goto("/");
   await page.getByLabel("Email address").fill(email);
+  const requestedAt = new Date();
   await page.getByRole("button", { name: "Send sign-in code" }).click();
 
   const codeInput = page.getByLabel("6-digit code");
   await expect(codeInput).toBeVisible();
+  let code = "";
   await expect
-    .poll(() => codeOrNull(requestedAt), { message: "waiting for the sign-in code in the API logs" })
-    .not.toBeNull();
-  await codeInput.fill(latestLoginCode(requestedAt));
+    .poll(() => (code = codeOrNull(requestedAt) ?? ""), {
+      message: "waiting for the sign-in code in the API logs",
+    })
+    .toMatch(/^\d{6}$/);
+  await codeInput.fill(code);
   await page.getByRole("button", { name: "Verify and continue" }).click();
 
   await expect(page).toHaveURL(/\/app\/$/);
