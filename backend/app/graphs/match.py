@@ -28,6 +28,7 @@ from app.graphs.citations import label_context
 from app.guardrails.pipeline import GuardrailRecorder, NullRecorder, record_hallucination_block
 from app.llm.structured import StructuredOutputError
 from app.observability.tracing import trace_config
+from app.observability.usage import current_usage
 from app.retrieval.search import RetrievedChunk
 from app.schemas.match import (
     AnalysisProgress,
@@ -220,6 +221,9 @@ async def analysis_events(
         )
     if cached is not None:
         analysis_id, stored = cached
+        usage = current_usage()
+        if usage is not None:
+            usage.cache_hit = True
         done = MatchAnalysis(
             **stored, analysis_id=analysis_id, cached=True, request_id=request_id_var.get()
         )

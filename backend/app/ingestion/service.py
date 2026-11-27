@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.cache.semantic import invalidate_user_cache
 from app.core.errors import AppError, ProviderError
 from app.core.request_id import request_id_var
 from app.core.settings import Settings
@@ -207,6 +208,8 @@ async def _store(
             text("SELECT pg_advisory_xact_lock(hashtext(:k1), hashtext(:k2))"),
             {"k1": str(user_id), "k2": doc_type},
         )
+        # The document set changes, so cached chat answers for this user are stale.
+        await invalidate_user_cache(session, user_id)
         # The previous ready document goes only now, so a failed ingest never loses it.
         await session.execute(
             delete(Document).where(

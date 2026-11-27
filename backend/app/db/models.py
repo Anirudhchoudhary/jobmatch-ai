@@ -193,3 +193,18 @@ class RequestLog(Base):
         ARRAY(Text), server_default=text("'{}'"), default=list
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class SemanticCacheEntry(Base):
+    """A grounded chat answer keyed by user, document set and question embedding (72h TTL)."""
+
+    __tablename__ = "semantic_cache"
+    __table_args__ = (Index("ix_semantic_cache_user_docset", "user_id", "doc_set_hash"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    doc_set_hash: Mapped[str] = mapped_column(Text)
+    embedding: Mapped[list[float]] = mapped_column(Vector(EMBEDDING_DIM))
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

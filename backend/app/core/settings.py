@@ -76,6 +76,11 @@ class Settings(_Bootstrap):
     rerank_top_n: int = 6
     min_relevance: float = 0.2
 
+    # Semantic cache for grounded chat answers
+    semantic_cache_enabled: bool = True
+    semantic_cache_threshold: float = 0.95
+    semantic_cache_ttl_hours: int = 72
+
     # Uploads
     upload_dir: Path = _REPO_ROOT / "var" / "uploads"
     max_upload_bytes: int = 5_242_880

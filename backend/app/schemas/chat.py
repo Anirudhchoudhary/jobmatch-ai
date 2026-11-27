@@ -23,7 +23,9 @@ class Citation(BaseModel):
 
 
 class ChatProgress(BaseModel):
-    step: Literal["checking_input", "retrieving", "reranking", "generating", "checking_answer"]
+    step: Literal[
+        "checking_input", "cache_hit", "retrieving", "reranking", "generating", "checking_answer"
+    ]
 
 
 class TokenEvent(BaseModel):
@@ -51,3 +53,4 @@ class ChatDone(BaseModel):
     request_id: str
     guardrails: list[GuardrailOutcome]
     blocked: bool
+    cached: bool = False
