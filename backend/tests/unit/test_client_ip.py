@@ -83,3 +83,40 @@ def test_no_peer_shares_the_unknown_bucket() -> None:
 def test_trusted_proxy_hops_must_be_positive() -> None:
     with pytest.raises(ValidationError):
         _settings(trusted_proxy_hops=0)
+
+
+TOKEN = "t" * 40
+
+
+def _cf(viewer: str, token: str | None = TOKEN) -> Request:
+    headers = {
+        "cloudfront-viewer-address": viewer,
+        "x-forwarded-for": "9.9.9.9, 198.51.100.4",
+    }
+    if token is not None:
+        headers["x-origin-verify"] = token
+    return _request(headers)
+
+
+@pytest.mark.parametrize(
+    ("viewer", "expected"),
+    [
+        ("203.0.113.10:46532", "203.0.113.10"),
+        ("2001:db8::1:46532", "2001:db8::1"),
+        ("[2001:db8::1]:46532", "2001:db8::1"),
+    ],
+)
+def test_client_ip_from_viewer_address_ipv4_and_ipv6(viewer: str, expected: str) -> None:
+    assert client_ip(_cf(viewer), _settings(origin_verify_token=TOKEN)) == expected
+
+
+@pytest.mark.parametrize("viewer", ["", "garbage", "203.0.113.10", "999.1.1.1:80", "abc:123"])
+def test_malformed_viewer_address_falls_back(viewer: str) -> None:
+    assert client_ip(_cf(viewer), _settings(origin_verify_token=TOKEN)) == "198.51.100.4"
+
+
+def test_viewer_address_ignored_without_verified_token() -> None:
+    settings = _settings(origin_verify_token=TOKEN)
+    assert client_ip(_cf("203.0.113.10:1", token="bad"), settings) == "198.51.100.4"
+    assert client_ip(_cf("203.0.113.10:1", token=None), settings) == "198.51.100.4"
+    assert client_ip(_cf("203.0.113.10:1"), _settings()) == "198.51.100.4"
