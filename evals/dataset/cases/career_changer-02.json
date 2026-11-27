@@ -8,13 +8,19 @@
     "matched": [
       "EHR",
       "HIPAA",
+      "Excel"
+    ],
+    "partial": [
       "SQL",
       "Requirements gathering",
-      "Excel",
       "Python"
     ],
     "missing": [
       "HL7 or FHIR",
+      "Tableau"
+    ],
+    "nice_to_have": [
+      "Python",
       "Tableau"
     ],
     "score_band": "partial"

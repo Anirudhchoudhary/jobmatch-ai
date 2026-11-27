@@ -9,11 +9,17 @@
       "Program management",
       "Stakeholder management",
       "Risk management",
-      "Budget",
+      "Budget"
+    ],
+    "partial": [
       "Agile or Scrum"
     ],
     "missing": [
       "Jira",
+      "PMP",
+      "SQL"
+    ],
+    "nice_to_have": [
       "PMP",
       "SQL"
     ],

@@ -73,9 +73,26 @@ class QAItem(BaseModel):
 
 
 class Expected(BaseModel):
+    """Recruiter labels. Names are the JD's own wording.
+
+    matched = fully covered, partial = partly covered (half credit), missing = not covered.
+    nice_to_have names which of those are nice-to-have; all other names are required.
+    """
+
     matched: list[str]
+    partial: list[str] = []
     missing: list[str]
+    nice_to_have: list[str] = []
     score_band: ScoreBand
+
+    @model_validator(mode="after")
+    def _check_labels(self) -> Self:
+        names = self.matched + self.partial + self.missing
+        if len(set(names)) != len(names):
+            raise ValueError("matched, partial and missing must be disjoint without repeats")
+        if not set(self.nice_to_have) <= set(names):
+            raise ValueError("nice_to_have must be a subset of matched, partial and missing")
+        return self
 
 
 class Attacks(BaseModel):

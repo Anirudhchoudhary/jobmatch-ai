@@ -12,10 +12,16 @@
       "Linux",
       "on-call",
       "Python or Go",
-      "Helm",
+      "Helm"
+    ],
+    "partial": [
       "ArgoCD"
     ],
     "missing": [],
+    "nice_to_have": [
+      "Helm",
+      "ArgoCD"
+    ],
     "score_band": "strong"
   },
   "attacks": {

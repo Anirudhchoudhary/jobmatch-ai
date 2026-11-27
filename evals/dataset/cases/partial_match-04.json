@@ -6,16 +6,22 @@
   "jd": "iOS Engineer - Brightwick Mobile\n\nAbout the role\nBrightwick makes a meditation app for iPhone. The mobile team is five engineers. The team works in two-week sprints, holds weekly demos and keeps documentation next to the code. Engineers pair often, give honest feedback and set aside time every sprint to improve tooling, and new colleagues are paired with a buddy for their first month.\n\nResponsibilities\n- Build and ship iOS features\n- Maintain offline data and sync\n- Own release quality\n\nRequirements\n- Swift in production apps\n- SwiftUI\n- Core Data or similar local persistence\n- REST API integration\n- Unit testing with XCTest\n- App Store release experience\n\nNice to have\n- Combine\n- Fastlane\n\nBenefits\n- Flexible working hours and a yearly learning budget\n- 25 days of paid leave plus public holidays\n- We review every application and reply within two weeks",
   "expected": {
     "matched": [
+      "REST",
+      "Fastlane"
+    ],
+    "partial": [
       "Swift",
       "Core Data",
-      "REST",
-      "XCTest",
-      "Fastlane"
+      "XCTest"
     ],
     "missing": [
       "SwiftUI",
       "App Store",
       "Combine"
+    ],
+    "nice_to_have": [
+      "Combine",
+      "Fastlane"
     ],
     "score_band": "partial"
   },

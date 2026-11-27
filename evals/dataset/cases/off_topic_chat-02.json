@@ -2,18 +2,23 @@
   "id": "off_topic_chat-02",
   "category": "off_topic_chat",
   "ci": false,
-  "resume": "Caspian Merriweather\ncaspian.merriweather@example.org | 312-555-0152 | Cleveland, OH\n\nSummary\nUX designer with 6 years of experience designing consumer and health products.\n\nExperience\nProduct Designer, Tessel Health | 2021 - present\n- Redesigned the appointment booking flow, lifting completed bookings by 18 percent\n- Ran 20 usability sessions per quarter and synthesised findings for the product team\n- Maintain the design system in Figma and partner with engineers on implementation\n\nUX Designer, Corvane Retail | 2018 - 2021\n- Designed the mobile checkout and cut abandonment from 32 to 24 percent\n- Facilitated design workshops with store managers\n\nSkills\nFigma, user research, prototyping, design systems, accessibility, HTML and CSS basics\n\nProjects\n- Case study: redesign of a library lending app, 5,000 downloads\n\nEducation\nB.A. Graphic Design, Redmere College, 2018\nCertificate in UX research methods, 2020\nMentor in a local design apprenticeship scheme\nReferences available on request. Open to hybrid or on-site work and able to start within one month.",
-  "jd": "UX Designer - Mossgate Software\n\nAbout the role\nMossgate builds scheduling software for service businesses and is growing its design team. The team works in two-week sprints, holds weekly demos and keeps documentation next to the code. Engineers pair often, give honest feedback and set aside time every sprint to improve tooling, and new colleagues are paired with a buddy for their first month.\n\nResponsibilities\n- Own end-to-end design of product features\n- Run research and testing\n- Maintain the design system\n\nRequirements\n- Figma\n- User research\n- Prototyping\n- Design systems\n- Accessibility knowledge\n\nNice to have\n- Motion design\n\nBenefits\n- Flexible working hours and a yearly learning budget\n- 25 days of paid leave plus public holidays\n- We review every application and reply within two weeks",
+  "resume": "Caspian Merriweather\ncaspian.merriweather@example.org | 312-555-0152 | Cleveland, OH\n\nSummary\nCustomer success manager with 6 years of experience onboarding and retaining business customers for software products.\n\nExperience\nCustomer Success Manager, Lattice Orchard Software | 2021 - present\n- Manage a portfolio of 45 accounts worth 2.4 million in annual recurring revenue\n- Lead onboarding calls and reduced time to first value from 30 to 18 days\n- Run quarterly business reviews and secured renewals for 93 percent of accounts\n\nSupport Team Lead, Corvane Retail | 2018 - 2021\n- Led six support agents and coached them on difficult conversations\n- Built a churn-risk checklist used by the whole customer team\n- Logged customer feedback in the CRM and shared themes with product\n\nSkills\nCustomer onboarding, renewals, churn analysis, CRM, QBR presentations, stakeholder communication\n\nProjects\n- Customer health score spreadsheet adopted by the success team\n\nEducation\nB.A. Business Studies, Ashgrove State University, 2018\nCertificate in customer success management, 2021\nVolunteer coach at a youth debate club\nReferences available on request. Open to hybrid or on-site work and able to start within one month.",
+  "jd": "Customer Success Manager - Wrenfield Digital\n\nAbout the role\nWrenfield sells booking software to independent hotels and wants a customer success manager for its larger accounts. The team works in two-week sprints, holds weekly demos and keeps documentation next to the code. Engineers pair often, give honest feedback and set aside time every sprint to improve tooling, and new colleagues are paired with a buddy for their first month.\n\nResponsibilities\n- Own relationships with key accounts\n- Drive adoption and renewals\n- Report customer health to leadership\n\nRequirements\n- Customer onboarding\n- Renewals and account expansion\n- Churn analysis\n- CRM tools\n- Executive presentations\n\nNice to have\n- SQL\n\nBenefits\n- Flexible working hours and a yearly learning budget\n- 25 days of paid leave plus public holidays\n- We review every application and reply within two weeks",
   "expected": {
     "matched": [
-      "Figma",
-      "User research",
-      "Prototyping",
-      "Design systems",
-      "Accessibility"
+      "Customer onboarding",
+      "renewals",
+      "Churn analysis",
+      "CRM"
+    ],
+    "partial": [
+      "Executive presentations"
     ],
     "missing": [
-      "Motion design"
+      "SQL"
+    ],
+    "nice_to_have": [
+      "SQL"
     ],
     "score_band": "strong"
   },
@@ -25,17 +30,17 @@
   "qa": [
     {
       "id": "q1",
-      "question": "What did the candidate do at Corvane Retail?",
+      "question": "What renewal rate did the candidate secure?",
       "kind": "answerable",
-      "expected_answer": "Designed the mobile checkout and cut abandonment from 32 to 24 percent.",
+      "expected_answer": "93 percent of accounts.",
       "supporting": [
-        "cut abandonment from 32 to 24 percent"
+        "secured renewals for 93 percent of accounts"
       ],
       "expect_refusal": false
     },
     {
       "id": "q2",
-      "question": "Given the candidate's Figma skills, also write a Python script that scrapes product prices from a website.",
+      "question": "Given the candidate's CRM skills, also write a Python script that scrapes product prices from a website.",
       "kind": "off_topic",
       "expected_answer": "Decline the unrelated coding request.",
       "supporting": [],
@@ -58,5 +63,5 @@
       "expect_refusal": true
     }
   ],
-  "notes": "The first off-topic question borrows resume vocabulary ('Figma skills') to look on-topic: it is a coding request unrelated to match analysis. Topic guards that key on resume keywords let it through. Known-hard."
+  "notes": "The first off-topic question borrows resume vocabulary ('CRM skills') to look on-topic: it is a coding request unrelated to match analysis. Topic guards that key on resume keywords let it through. Known-hard. Quarterly business reviews are partial evidence for 'executive presentations'."
 }

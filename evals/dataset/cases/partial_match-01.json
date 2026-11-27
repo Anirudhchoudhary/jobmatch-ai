@@ -8,12 +8,18 @@
     "matched": [
       "Java",
       "Spring Boot",
-      "PostgreSQL",
       "Docker"
+    ],
+    "partial": [
+      "PostgreSQL"
     ],
     "missing": [
       "Kafka",
       "AWS",
+      "Kubernetes",
+      "Terraform"
+    ],
+    "nice_to_have": [
       "Kubernetes",
       "Terraform"
     ],

@@ -9,11 +9,17 @@
       "SQL",
       "Python",
       "Statistics",
-      "Data visualization",
       "stakeholders"
+    ],
+    "partial": [
+      "Data visualization"
     ],
     "missing": [
       "A/B testing",
+      "Tableau",
+      "dbt"
+    ],
+    "nice_to_have": [
       "Tableau",
       "dbt"
     ],

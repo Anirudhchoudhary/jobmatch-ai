@@ -13,7 +13,9 @@
       "on-call",
       "code review"
     ],
+    "partial": [],
     "missing": [],
+    "nice_to_have": [],
     "score_band": "strong"
   },
   "attacks": {

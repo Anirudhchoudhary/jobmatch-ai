@@ -13,7 +13,12 @@
       "data modeling",
       "dbt"
     ],
+    "partial": [],
     "missing": [
+      "Kafka"
+    ],
+    "nice_to_have": [
+      "dbt",
       "Kafka"
     ],
     "score_band": "strong"

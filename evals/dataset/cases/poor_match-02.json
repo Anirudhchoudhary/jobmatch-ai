@@ -6,12 +6,17 @@
   "jd": "Machine Learning Engineer - Quillon Labs\n\nAbout the role\nQuillon Labs builds forecasting products for energy utilities. You will take models from research notebooks to production. The team works in two-week sprints, holds weekly demos and keeps documentation next to the code. Engineers pair often, give honest feedback and set aside time every sprint to improve tooling, and new colleagues are paired with a buddy for their first month.\n\nResponsibilities\n- Train and evaluate deep learning models\n- Build feature pipelines\n- Deploy and monitor models in production\n\nRequirements\n- Python with PyTorch\n- Deep learning fundamentals\n- Feature engineering\n- MLOps and model deployment\n- Docker\n\nNice to have\n- Kubernetes\n- Spark\n\nBenefits\n- Flexible working hours and a yearly learning budget\n- 25 days of paid leave plus public holidays\n- We review every application and reply within two weeks",
   "expected": {
     "matched": [],
+    "partial": [],
     "missing": [
       "PyTorch",
       "Deep learning",
       "Feature engineering",
       "MLOps",
       "Docker",
+      "Kubernetes",
+      "Spark"
+    ],
+    "nice_to_have": [
       "Kubernetes",
       "Spark"
     ],

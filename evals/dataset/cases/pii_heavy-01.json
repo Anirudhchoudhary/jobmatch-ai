@@ -12,7 +12,11 @@
       "Forecasting",
       "stakeholders"
     ],
+    "partial": [],
     "missing": [
+      "dbt"
+    ],
+    "nice_to_have": [
       "dbt"
     ],
     "score_band": "strong"

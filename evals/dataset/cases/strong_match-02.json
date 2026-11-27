@@ -14,7 +14,12 @@
       "GraphQL",
       "Next.js"
     ],
+    "partial": [],
     "missing": [
+      "Storybook"
+    ],
+    "nice_to_have": [
+      "Next.js",
       "Storybook"
     ],
     "score_band": "strong"

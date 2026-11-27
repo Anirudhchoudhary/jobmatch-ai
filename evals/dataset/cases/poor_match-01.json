@@ -5,7 +5,8 @@
   "resume": "Henrietta Calloway-Fitch\nhenrietta.calloway@example.com | 503-555-0111 | Tulsa, OK\n\nSummary\nRetail store manager with 9 years leading teams of up to 25 people. Skilled at scheduling, stock control and customer service.\n\nExperience\nStore Manager, Corvane Retail | 2018 - present\n- Lead 25 staff across two shifts and hit sales targets for six consecutive quarters\n- Reduced stock shrinkage by 18 percent through weekly cycle counts\n- Pull weekly sales numbers with simple SQL queries and Excel pivot tables, then brief the regional director\n\nAssistant Manager, Fenwick and Dray | 2014 - 2018\n- Trained 40 new hires and rewrote the onboarding checklist\n- Handled supplier negotiations worth 1.2 million per year\n\nSkills\nTeam leadership, scheduling, inventory control, Excel, basic SQL, customer service, supplier management\n\nProjects\n- Volunteer treasurer for a neighbourhood food bank, maintaining the monthly budget spreadsheet\n\nEducation\nDiploma in Business Administration, Redmere College, 2014\nCertification: Retail leadership programme, 2019\nFirst aid and food-safety certified\nReferences available on request. Open to hybrid or on-site work and able to start within one month.",
   "jd": "Data Engineer - Cobalt Meadow Insurance\n\nAbout the role\nCobalt Meadow is modernising its analytics stack. You will build and run the pipelines that feed underwriting dashboards. The team works in two-week sprints, holds weekly demos and keeps documentation next to the code. Engineers pair often, give honest feedback and set aside time every sprint to improve tooling, and new colleagues are paired with a buddy for their first month.\n\nResponsibilities\n- Build and maintain batch data pipelines\n- Model data for reporting\n- Monitor pipeline health\n\nRequirements\n- Python for data processing\n- Advanced SQL\n- Apache Airflow\n- Apache Spark\n- AWS data services\n- Data modeling\n\nNice to have\n- dbt\n- Kafka\n\nBenefits\n- Flexible working hours and a yearly learning budget\n- 25 days of paid leave plus public holidays\n- We review every application and reply within two weeks",
   "expected": {
-    "matched": [
+    "matched": [],
+    "partial": [
       "SQL"
     ],
     "missing": [
@@ -14,6 +15,10 @@
       "Spark",
       "AWS",
       "Data modeling",
+      "dbt",
+      "Kafka"
+    ],
+    "nice_to_have": [
       "dbt",
       "Kafka"
     ],

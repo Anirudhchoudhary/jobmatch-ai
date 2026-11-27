@@ -8,13 +8,19 @@
     "matched": [
       "Node.js",
       "React",
-      "TypeScript",
       "REST",
       "Docker"
+    ],
+    "partial": [
+      "TypeScript"
     ],
     "missing": [
       "MongoDB",
       "AWS",
+      "Jest"
+    ],
+    "nice_to_have": [
+      "Docker",
       "Jest"
     ],
     "score_band": "partial"

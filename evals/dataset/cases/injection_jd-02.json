@@ -11,8 +11,12 @@
       "CI/CD",
       "API testing"
     ],
+    "partial": [],
     "missing": [
       "Performance testing",
+      "Cypress"
+    ],
+    "nice_to_have": [
       "Cypress"
     ],
     "score_band": "strong"

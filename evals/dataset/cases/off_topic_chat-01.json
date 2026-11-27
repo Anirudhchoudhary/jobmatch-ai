@@ -2,7 +2,7 @@
   "id": "off_topic_chat-01",
   "category": "off_topic_chat",
   "ci": true,
-  "resume": "Isolde Fairweather\nisolde.fairweather@example.com | 206-555-0151 | Portland, OR\n\nSummary\nProduct designer with 6 years of experience in healthcare and retail apps.\n\nExperience\nProduct Designer, Tessel Health | 2021 - present\n- Redesigned the appointment booking flow, lifting completed bookings by 18 percent\n- Ran 20 usability sessions per quarter and synthesised findings for the product team\n- Maintain the design system in Figma and partner with engineers on implementation\n\nUX Designer, Corvane Retail | 2018 - 2021\n- Designed the mobile checkout and cut abandonment from 32 to 24 percent\n- Facilitated design workshops with store managers\n\nSkills\nFigma, user research, prototyping, design systems, accessibility, HTML and CSS basics\n\nProjects\n- Case study: redesign of a library lending app, 5,000 downloads\n\nEducation\nB.A. Graphic Design, Redmere College, 2018\nCertificate in UX research methods, 2020\nMentor in a local design apprenticeship scheme\nReferences available on request. Open to hybrid or on-site work and able to start within one month.",
+  "resume": "Isolde Fairweather\nisolde.fairweather@example.com | 206-555-0151 | Portland, OR\n\nSummary\nProduct designer with 6 years of experience in healthcare and retail apps.\n\nExperience\nProduct Designer, Tessel Health | 2021 - present\n- Redesigned the appointment booking flow, lifting completed bookings by 18 percent\n- Ran 20 usability sessions per quarter and synthesised findings for the product team\n- Maintain the design system in Figma and partner with engineers on implementation\n\nUX Designer, Corvane Retail | 2018 - 2021\n- Designed the mobile checkout and cut abandonment from 32 to 24 percent\n- Facilitated design workshops with store managers\n- Produced interactive prototypes for usability testing\n\nSkills\nFigma, user research, prototyping, design systems, accessibility, HTML and CSS basics\n\nProjects\n- Case study: redesign of a library lending app, 5,000 downloads\n\nEducation\nB.A. Graphic Design, Redmere College, 2018\nCertificate in UX research methods, 2020\nMentor in a local design apprenticeship scheme\nReferences available on request. Open to hybrid or on-site work and able to start within one month.",
   "jd": "Product Designer - Mossgate Software\n\nAbout the role\nMossgate builds scheduling software for service businesses and is growing its design team. The team works in two-week sprints, holds weekly demos and keeps documentation next to the code. Engineers pair often, give honest feedback and set aside time every sprint to improve tooling, and new colleagues are paired with a buddy for their first month.\n\nResponsibilities\n- Own end-to-end design of product features\n- Run research and testing\n- Maintain the design system\n\nRequirements\n- Figma\n- User research\n- Prototyping\n- Design systems\n- Accessibility knowledge\n\nNice to have\n- Motion design\n\nBenefits\n- Flexible working hours and a yearly learning budget\n- 25 days of paid leave plus public holidays\n- We review every application and reply within two weeks",
   "expected": {
     "matched": [
@@ -12,7 +12,11 @@
       "Design systems",
       "Accessibility"
     ],
+    "partial": [],
     "missing": [
+      "Motion design"
+    ],
+    "nice_to_have": [
       "Motion design"
     ],
     "score_band": "strong"

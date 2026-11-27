@@ -10,10 +10,12 @@
       "cloud",
       "database"
     ],
+    "partial": [],
     "missing": [
       "communication",
       "learn"
     ],
+    "nice_to_have": [],
     "score_band": "partial"
   },
   "attacks": {

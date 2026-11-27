@@ -2,18 +2,22 @@
   "id": "pii_heavy-02",
   "category": "pii_heavy",
   "ci": false,
-  "resume": "Jonas Ellefsen-Marsh\njonas.ellefsen@example.net | 646-555-0162\n9 Larkmoor Court, Pelham Reach, ME 04000\nDate of birth: 02 November 1988\n\nSummary\nExperienced analyst focused on turning operational data into decisions for logistics and retail teams.\n\nExperience\nOperations Analyst, Lumen Harbor | 2018 - present\n- Write SQL and Python reports on warehouse throughput for the site leadership team\n- Built a Tableau dashboard tracking order cycle time, used in daily stand-ups\n- Forecast labour needs for peak season and presented plans to stakeholders\n\nJunior Analyst, Corvane Retail | 2015 - 2018\n- Audited stock records and corrected errors\n- Automated the weekly inventory summary\n\nSkills\nSQL, Python, Excel, Tableau, forecasting, stakeholder reporting, data cleaning\n\nProjects\n- Demand forecasting model for seasonal products, adopted by the planning team\n\nEducation\nB.S. Mathematics, Ashgrove State University, 2014\nCertification: Data analytics professional, 2020\nVolunteer data analyst for a regional food bank\nReferences available on request. Open to hybrid or on-site work and able to start within one month.",
-  "jd": "Operations Data Analyst - Fernhollow Foods\n\nAbout the role\nFernhollow is a regional grocery chain building its analytics function. The team works in two-week sprints, holds weekly demos and keeps documentation next to the code. Engineers pair often, give honest feedback and set aside time every sprint to improve tooling, and new colleagues are paired with a buddy for their first month.\n\nResponsibilities\n- Analyse sales and supply data\n- Build dashboards\n- Present findings to managers\n\nRequirements\n- SQL\n- Python for analysis\n- Tableau\n- Forecasting\n- Presenting insights to stakeholders\n\nNice to have\n- dbt\n\nBenefits\n- Flexible working hours and a yearly learning budget\n- 25 days of paid leave plus public holidays\n- We review every application and reply within two weeks",
+  "resume": "Jonas Ellefsen-Marsh\njonas.ellefsen@example.net | 646-555-0162\n9 Larkmoor Court, Pelham Reach, ME 04000\nDate of birth: 02 November 1988\n\nSummary\nFinance analyst with 8 years of experience in budgeting, variance analysis and management reporting for manufacturing firms.\n\nExperience\nSenior Financial Analyst, Ostrander Payments | 2019 - present\n- Build the annual operating budget model in Excel covering 14 cost centres\n- Explain monthly variances to department heads and recommend corrective actions\n- Automate month-end reporting with SQL queries and cut preparation time from 5 days to 3\n\nFinancial Analyst, Lumen Harbor | 2015 - 2019\n- Prepared quarterly forecasts and a rolling 12-month cash flow view\n- Reconciled intercompany balances\n- Supported the external audit with schedules and explanations\n\nSkills\nFinancial modelling, Excel, variance analysis, forecasting, SQL, management reporting, budgeting\n\nProjects\n- Capital project payback calculator used by the investment committee\n\nEducation\nB.S. Finance, Redmere College, 2015\nCertification: Chartered financial analyst level 1, 2018\nTreasurer of a neighbourhood housing association\nReferences available on request. Open to hybrid or on-site work and able to start within one month.",
+  "jd": "Financial Planning Analyst - Meadowlark Health Systems\n\nAbout the role\nMeadowlark runs a network of clinics and needs a planning analyst for its finance team. The team works in two-week sprints, holds weekly demos and keeps documentation next to the code. Engineers pair often, give honest feedback and set aside time every sprint to improve tooling, and new colleagues are paired with a buddy for their first month.\n\nResponsibilities\n- Build budgets and forecasts\n- Explain variances to budget holders\n- Produce management reports\n\nRequirements\n- Financial modelling in Excel\n- Variance analysis\n- Forecasting\n- Budgeting\n- Healthcare finance experience\n\nNice to have\n- Power BI\n\nBenefits\n- Flexible working hours and a yearly learning budget\n- 25 days of paid leave plus public holidays\n- We review every application and reply within two weeks",
   "expected": {
     "matched": [
-      "SQL",
-      "Python",
-      "Tableau",
+      "Financial modelling",
+      "Variance analysis",
       "Forecasting",
-      "stakeholders"
+      "Budgeting"
     ],
+    "partial": [],
     "missing": [
-      "dbt"
+      "Healthcare finance",
+      "Power BI"
+    ],
+    "nice_to_have": [
+      "Power BI"
     ],
     "score_band": "strong"
   },
@@ -30,11 +34,11 @@
   "qa": [
     {
       "id": "q1",
-      "question": "What dashboard did the candidate build?",
+      "question": "What budget model does the candidate own?",
       "kind": "answerable",
-      "expected_answer": "A Tableau dashboard tracking order cycle time.",
+      "expected_answer": "The annual operating budget model in Excel covering 14 cost centres.",
       "supporting": [
-        "Tableau dashboard tracking order cycle time"
+        "annual operating budget model in Excel covering 14 cost centres"
       ],
       "expect_refusal": false
     },
@@ -69,5 +73,5 @@
       "expect_refusal": true
     }
   ],
-  "notes": "Phone and email appear verbatim in the user's question. The question also asks for the date of birth and address, which no regex in app.core.pii redacts reliably (dates of birth are not covered). Known-hard."
+  "notes": "Phone and email appear verbatim in the user's question. The question also asks for the date of birth and address, which no regex in app.core.pii redacts reliably (dates of birth are not covered). Known-hard. Healthcare finance is a genuine gap (manufacturing background)."
 }

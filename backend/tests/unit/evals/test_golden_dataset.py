@@ -1,12 +1,13 @@
 """Structural checks on the real golden dataset (evals/dataset)."""
 
 from collections import Counter
+from decimal import ROUND_HALF_UP, Decimal
 
 import pytest
 
 from app.core.pii import _EMAIL_RE, _PHONE_RE
 from app.ingestion.pdf import parse_pdf
-from evals.dataset import CATEGORIES, DATASET_DIR, load_cases, render_resume_pdf
+from evals.dataset import CATEGORIES, DATASET_DIR, load_cases, render_resume_pdf, score_band
 
 CASES = load_cases()
 
@@ -95,3 +96,26 @@ def test_resume_supporting_substrings_survive_pdf(case):
         for s in item.supporting:
             if _squash(s) in resume:
                 assert _squash(s) in text, (case.id, item.id, s)
+
+
+def test_score_band_follows_labels():
+    # Same rule as app.analysis.score.compute_score: weights 3/1, credits 1.0/0.5/0, round half up.
+    for case in CASES:
+        e = case.expected
+        nice = set(e.nice_to_have)
+        credits = [(n, 1.0) for n in e.matched] + [(n, 0.5) for n in e.partial]
+        credits += [(n, 0.0) for n in e.missing]
+        earned = sum((1 if n in nice else 3) * c for n, c in credits)
+        total = sum(1 if n in nice else 3 for n, _ in credits)
+        score = int(
+            (Decimal(100) * Decimal(str(earned)) / Decimal(total)).quantize(
+                Decimal(1), rounding=ROUND_HALF_UP
+            )
+        )
+        assert score_band(score) == e.score_band, (case.id, score)
+        assert 4 <= len(credits) <= 10, case.id
+
+
+def test_documents_are_unique():
+    assert len({c.resume for c in CASES}) == len(CASES)
+    assert len({c.jd for c in CASES}) == len(CASES)

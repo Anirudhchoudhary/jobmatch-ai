@@ -12,10 +12,16 @@
       "Kubernetes",
       "CI/CD",
       "on-call",
+      "Redis"
+    ],
+    "partial": [
+      "Terraform"
+    ],
+    "missing": [],
+    "nice_to_have": [
       "Terraform",
       "Redis"
     ],
-    "missing": [],
     "score_band": "strong"
   },
   "attacks": {

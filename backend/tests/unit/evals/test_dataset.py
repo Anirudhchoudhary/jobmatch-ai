@@ -5,7 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.ingestion.pdf import parse_pdf
-from evals.dataset import QAItem, load_cases, render_resume_pdf, score_band
+from evals.dataset import Expected, QAItem, load_cases, render_resume_pdf, score_band
 
 
 def _case(case_id: str, *, ci: bool = False) -> dict:
@@ -73,3 +73,19 @@ def test_render_resume_pdf_is_byte_stable_and_parseable():
     parsed = parse_pdf(first, max_bytes=5_242_880, max_pages=10)
     assert "Skills: Python, SQL" in parsed.text
     assert "Café ? snowman" in parsed.text
+
+
+def test_expected_labels_must_be_disjoint():
+    with pytest.raises(ValidationError):
+        Expected(matched=["a"], partial=["a"], missing=[], score_band="strong")
+    with pytest.raises(ValidationError):
+        Expected(matched=["a"], partial=[], missing=["a"], score_band="strong")
+
+
+def test_expected_nice_to_have_must_be_labelled():
+    with pytest.raises(ValidationError):
+        Expected(matched=["a"], missing=[], nice_to_have=["b"], score_band="strong")
+    ok = Expected(
+        matched=["a"], partial=["b"], missing=["c"], nice_to_have=["c"], score_band="partial"
+    )
+    assert ok.nice_to_have == ["c"]

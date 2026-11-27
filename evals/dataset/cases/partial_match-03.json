@@ -6,16 +6,22 @@
   "jd": "Data Analyst - Fernhollow Foods\n\nAbout the role\nFernhollow is a regional grocery chain building an analytics function from scratch. The team works in two-week sprints, holds weekly demos and keeps documentation next to the code. Engineers pair often, give honest feedback and set aside time every sprint to improve tooling, and new colleagues are paired with a buddy for their first month.\n\nResponsibilities\n- Analyse sales and customer data\n- Build dashboards for store managers\n- Design and evaluate A/B tests\n\nRequirements\n- SQL\n- Python for analysis\n- Tableau dashboards\n- A/B testing\n- Applied statistics\n- Presenting insights to stakeholders\n\nNice to have\n- dbt\n- R\n\nBenefits\n- Flexible working hours and a yearly learning budget\n- 25 days of paid leave plus public holidays\n- We review every application and reply within two weeks",
   "expected": {
     "matched": [
-      "SQL",
-      "Python",
-      "Tableau",
-      "A/B testing",
       "statistics",
       "stakeholders",
       "R"
     ],
+    "partial": [
+      "SQL",
+      "Python",
+      "Tableau",
+      "A/B testing"
+    ],
     "missing": [
       "dbt"
+    ],
+    "nice_to_have": [
+      "dbt",
+      "R"
     ],
     "score_band": "partial"
   },

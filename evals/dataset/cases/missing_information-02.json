@@ -11,9 +11,13 @@
       "ETL",
       "Stakeholder reporting"
     ],
+    "partial": [],
     "missing": [
       "Python",
       "Snowflake",
+      "Looker"
+    ],
+    "nice_to_have": [
       "Looker"
     ],
     "score_band": "partial"
