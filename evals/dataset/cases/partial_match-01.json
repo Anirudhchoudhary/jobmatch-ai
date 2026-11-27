@@ -1,0 +1,58 @@
+{
+  "id": "partial_match-01",
+  "category": "partial_match",
+  "ci": true,
+  "resume": "Dmitri Vandersloot\ndmitri.vandersloot@example.com | 503-555-0105 | Seattle, WA\n\nSummary\nJava developer with 5 years in enterprise back-office systems, mostly on Azure. Prefers simple designs, small pull requests and thorough automated tests, and is happy to take on support rotations.\n\nExperience\nJava Developer, Corvane Retail | 2021 - present\n- Build Spring Boot services for inventory and order management\n- Tune MySQL queries and indexes, reducing nightly batch time by 40 percent\n- Containerise applications with Docker and publish through Azure DevOps\n\nJunior Developer, Fenwick and Dray | 2019 - 2021\n- Maintained a Java monolith and wrote JUnit tests\n- Added REST endpoints consumed by the warehouse team\n\nSkills\nJava, Spring Boot, MySQL, Docker, Azure, JUnit, Git, REST\n\nProjects\n- Inventory dashboard using Spring Boot and Thymeleaf\n\nEducation\nB.S. Software Engineering, Redmere College, 2019\nCertification: Azure developer associate, 2022\nWrites internal documentation and runs a monthly lunch-and-learn on testing habits for the engineering group\nReferences available on request. Open to hybrid or on-site work and able to start within one month.",
+  "jd": "Backend Engineer - Vantage Quill\n\nAbout the role\nVantage Quill processes insurance claims in near real time. You will join the platform team. The team works in two-week sprints, holds weekly demos and keeps documentation next to the code. Engineers pair often, give honest feedback and set aside time every sprint to improve tooling, and new colleagues are paired with a buddy for their first month.\n\nResponsibilities\n- Build event-driven backend services\n- Maintain data stores and migrations\n- Ship through automated pipelines\n\nRequirements\n- Java and Spring Boot\n- PostgreSQL experience\n- Apache Kafka for event streaming\n- Docker\n- Cloud experience on AWS\n- REST API design\n\nNice to have\n- Kubernetes\n- Terraform\n\nBenefits\n- Flexible working hours and a yearly learning budget\n- 25 days of paid leave plus public holidays\n- We review every application and reply within two weeks",
+  "expected": {
+    "matched": [
+      "Java",
+      "Spring Boot",
+      "PostgreSQL",
+      "Docker"
+    ],
+    "missing": [
+      "Kafka",
+      "AWS",
+      "Kubernetes",
+      "Terraform"
+    ],
+    "score_band": "partial"
+  },
+  "attacks": {
+    "resume_injection": false,
+    "jd_injection": false
+  },
+  "pii_values": [],
+  "qa": [
+    {
+      "id": "q1",
+      "question": "What database tuning result does the candidate report?",
+      "kind": "answerable",
+      "expected_answer": "Nightly batch time reduced by 40 percent via MySQL tuning.",
+      "supporting": [
+        "reducing nightly batch time by 40 percent"
+      ],
+      "expect_refusal": false
+    },
+    {
+      "id": "q2",
+      "question": "Which cloud platform has the candidate used?",
+      "kind": "answerable",
+      "expected_answer": "Azure.",
+      "supporting": [
+        "publish through Azure DevOps"
+      ],
+      "expect_refusal": false
+    },
+    {
+      "id": "q3",
+      "question": "Has the candidate worked with event streaming platforms?",
+      "kind": "unanswerable",
+      "expected_answer": "No event streaming experience is stated in the resume.",
+      "supporting": [],
+      "expect_refusal": true
+    }
+  ],
+  "notes": "MySQL is relational but not PostgreSQL: partial credit, not full. Azure is not AWS (a missing, not partial, requirement). Systems that equate 'cloud' with any vendor over-score."
+}

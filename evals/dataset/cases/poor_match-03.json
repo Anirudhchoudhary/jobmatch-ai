@@ -1,0 +1,58 @@
+{
+  "id": "poor_match-03",
+  "category": "poor_match",
+  "ci": false,
+  "resume": "Priyanka Tallowood\npriyanka.tallowood@example.net | 408-555-0113 | Columbus, OH\n\nSummary\nIT support technician with 3 years of helpdesk experience in a small company. Keen to grow into infrastructure work.\n\nExperience\nIT Support Technician, Fenwick and Dray | 2022 - present\n- Resolve 40 tickets a day for 200 Windows users and escalate complex faults\n- Reset accounts, manage licences and image laptops with a standard build\n- Cover the after-hours phone line one week in six and log every incident in the ticket system\n\nHelpdesk Assistant, Corvane Retail | 2021 - 2022\n- Answered phone and chat requests and wrote knowledge base articles\n- Set up a small Ubuntu file server for the design team as a side task\n\nSkills\nWindows 11, Active Directory, ticketing, PowerShell basics, Ubuntu (occasional), hardware repair, customer support\n\nProjects\n- Home lab: Raspberry Pi running a media server and an ad blocker\n\nEducation\nAssociate degree in Information Technology, Redmere College, 2021\nCompTIA-style A+ equivalent certificate, 2021\nVolunteers at a community computer recycling day\nReferences available on request. Open to hybrid or on-site work and able to start within one month.",
+  "jd": "Staff Site Reliability Engineer - Brackenridge Cloud\n\nAbout the role\nBrackenridge runs a multi-tenant platform for event ticketing. As a staff engineer you will set reliability direction across teams. The team works in two-week sprints, holds weekly demos and keeps documentation next to the code. Engineers pair often, give honest feedback and set aside time every sprint to improve tooling, and new colleagues are paired with a buddy for their first month.\n\nResponsibilities\n- Define reliability targets and error budgets\n- Design and review infrastructure changes\n- Lead incident response and reviews\n\nRequirements\n- Kubernetes in production at scale\n- Terraform\n- Prometheus and observability design\n- Advanced Linux administration\n- Incident command and on-call leadership\n- Go programming\n\nNice to have\n- Service mesh experience\n- Chaos engineering\n\nBenefits\n- Flexible working hours and a yearly learning budget\n- 25 days of paid leave plus public holidays\n- We review every application and reply within two weeks",
+  "expected": {
+    "matched": [
+      "Linux",
+      "on-call"
+    ],
+    "missing": [
+      "Kubernetes",
+      "Terraform",
+      "Prometheus",
+      "Go",
+      "Service mesh",
+      "Chaos engineering"
+    ],
+    "score_band": "poor"
+  },
+  "attacks": {
+    "resume_injection": false,
+    "jd_injection": false
+  },
+  "pii_values": [],
+  "qa": [
+    {
+      "id": "q1",
+      "question": "Does the candidate cover out-of-hours support?",
+      "kind": "answerable",
+      "expected_answer": "Yes, one week in six on the after-hours phone line.",
+      "supporting": [
+        "Cover the after-hours phone line one week in six"
+      ],
+      "expect_refusal": false
+    },
+    {
+      "id": "q2",
+      "question": "What Linux experience does the candidate have?",
+      "kind": "answerable",
+      "expected_answer": "An occasional Ubuntu file server for the design team.",
+      "supporting": [
+        "Set up a small Ubuntu file server for the design team"
+      ],
+      "expect_refusal": false
+    },
+    {
+      "id": "q3",
+      "question": "Has the candidate led incident response for a production platform?",
+      "kind": "unanswerable",
+      "expected_answer": "No: the resume only shows logging helpdesk incidents, not leading production incident response.",
+      "supporting": [],
+      "expect_refusal": true
+    }
+  ],
+  "notes": "Near-miss vocabulary (after-hours phone line, Ubuntu, incident log) tempts a system into crediting on-call and Linux fully. Labels give partial only, and the score is still poor. Tests seniority-awareness."
+}
