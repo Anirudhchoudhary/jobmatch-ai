@@ -62,7 +62,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.baseline is not None:
         try:
             baseline = json.loads(args.baseline.read_text())["summary"]
-        except (OSError, ValueError, KeyError) as exc:
+        except (OSError, ValueError, KeyError, TypeError) as exc:
             print(f"cannot read baseline {args.baseline}: {type(exc).__name__}", file=sys.stderr)
             return 2
 

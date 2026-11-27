@@ -1,3 +1,4 @@
+import tempfile
 import warnings
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
@@ -260,12 +261,27 @@ async def test_quarantined_chunk_excluded_from_retrieval_and_analysis(
         assert all("Ignore all previous" not in c.text for c in chunks)
 
 
-async def test_search_ties_break_by_doc_then_ordinal(world: World) -> None:
-    emb = await world.embedder.embed_query("Python backend engineer")
+async def test_cross_document_ties_order_by_doc_type(world: World) -> None:
+    """Identical text in a resume and a JD ties exactly; the JD ('jd' < 'resume') comes first
+    on every run, whatever the random document ids are."""
+    tie = "Zyxquartz kafka streaming platform engineer building resilient data pipelines"
+    user = uuid4()
     async with world.sm() as s:
-        ids = await active_doc_ids(s, world.user_a, embed_model=world.embedder.embed_model)
-        vec = await vector_search(s, user_id=world.user_a, doc_ids=ids, query_embedding=emb, k=20)
-        txt = await text_search(s, user_id=world.user_a, doc_ids=ids, query="Python", k=20)
-    for hits in (vec, txt):
-        keys = [(-round(h.score, 12), h.doc_id, h.ordinal) for h in hits]
-        assert keys == sorted(keys)
+        s.add(User(id=user))
+        await s.commit()
+    try:
+        blobs = LocalBlobStore(Path(tempfile.mkdtemp()))
+        await _ingest(world.sm, blobs, user, "resume", tie)
+        await _ingest(world.sm, blobs, user, "jd", tie)
+        emb = await world.embedder.embed_query(tie)
+        async with world.sm() as s:
+            ids = await active_doc_ids(s, user, embed_model=world.embedder.embed_model)
+            vec = await vector_search(s, user_id=user, doc_ids=ids, query_embedding=emb, k=20)
+            txt = await text_search(s, user_id=user, doc_ids=ids, query="Zyxquartz", k=20)
+        for hits in (vec, txt):
+            assert [h.doc_type for h in hits[:2]] == ["jd", "resume"]
+            assert hits[0].score == hits[1].score  # an exact tie, not near-equal
+    finally:
+        async with world.sm() as s:
+            await s.execute(text("DELETE FROM users WHERE id = :i"), {"i": user})
+            await s.commit()

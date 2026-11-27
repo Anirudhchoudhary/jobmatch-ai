@@ -73,7 +73,9 @@ async def vector_search(
     await session.execute(text("SET LOCAL hnsw.iterative_scan = 'relaxed_order'"))
     distance = Chunk.embedding.cosine_distance(query_embedding)
     stmt = _scoped(select(Chunk, (1 - distance).label("score")), user_id, doc_ids)
-    rows = await session.execute(stmt.order_by(distance, Chunk.doc_id, Chunk.ordinal).limit(k))
+    rows = await session.execute(
+        stmt.order_by(distance, Chunk.doc_type, Chunk.ordinal, Chunk.doc_id).limit(k)
+    )
     return [_to_chunk(r.Chunk, r.score) for r in rows.all()]
 
 
@@ -93,7 +95,7 @@ async def text_search(
     stmt = _scoped(select(Chunk, rank.label("score")), user_id, doc_ids)
     rows = await session.execute(
         stmt.where(Chunk.tsv.op("@@")(tsq))
-        .order_by(rank.desc(), Chunk.doc_id, Chunk.ordinal)  # tiebreak: stable top-k cut
+        .order_by(rank.desc(), Chunk.doc_type, Chunk.ordinal, Chunk.doc_id)  # run-stable ties
         .limit(k)
     )
     return [_to_chunk(r.Chunk, r.score) for r in rows.all()]
