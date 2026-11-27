@@ -13,6 +13,14 @@ dependencies = [
     "alembic",
     "boto3",
     "structlog",
+    "pypdf>=7.2.0",
+    "langgraph>=1.2.24",
+    "langchain-core>=1.8.5",
+    "langchain-anthropic>=1.7.13",
+    "presidio-analyzer>=2.2.366",
+    "spacy>=3.8.18",
+    "en-core-web-sm",
+    "langfuse>=5.2",
 ]
 
 [dependency-groups]
@@ -22,13 +30,24 @@ dev = [
     "httpx",
     "ruff",
     "mypy",
-    "boto3-stubs[secretsmanager]",
+    "boto3-stubs[bedrock-agent-runtime,bedrock-runtime,secretsmanager]",
     "python-dotenv",
     "pre-commit",
+    "fpdf2>=2.9.0",
+    "cryptography>=50.0.2",
+    "httpx2>=2.16.2",
+    "pyyaml>=6.0.4",
+    "types-pyyaml>=6.0.12.20261122",
+]
+evals = [
+    "deepeval>=4.3.6,<5",
 ]
 
 [tool.uv]
 package = false
+
+[tool.uv.sources]
+en-core-web-sm = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" }
 
 [tool.ruff]
 line-length = 100
@@ -42,8 +61,14 @@ select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC", "S"]
 
 [tool.mypy]
 strict = true
-files = ["app"]
+files = ["app", "evals"]
 plugins = ["pydantic.mypy"]
+
+# deepeval lives in the optional `evals` group and is untyped: absent in the default env,
+# Any-typed when present. Scoped so the rest of the strict config is untouched.
+[[tool.mypy.overrides]]
+module = ["deepeval", "deepeval.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

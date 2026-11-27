@@ -1,0 +1,14 @@
+[
+  {"id": "q01", "question": "Terraform", "expected_substring": "Terraform modules", "doc_type": "resume"},
+  {"id": "q02", "question": "Which candidate projects use Terraform?", "expected_substring": "Infra Atlas", "doc_type": "resume"},
+  {"id": "q03", "question": "message queue experience", "expected_substring": "Kafka", "doc_type": "resume"},
+  {"id": "q04", "question": "event streaming at high throughput", "expected_substring": "40k messages per second", "doc_type": "resume"},
+  {"id": "q05", "question": "Does the candidate know PostgreSQL performance tuning?", "expected_substring": "Tuned PostgreSQL", "doc_type": "resume"},
+  {"id": "q06", "question": "Where did the candidate study?", "expected_substring": "University of California", "doc_type": "resume"},
+  {"id": "q07", "question": "Who has mentoring or team leadership experience?", "expected_substring": "mentored four engineers", "doc_type": "resume"},
+  {"id": "q08", "question": "continuous integration and build automation", "expected_substring": "GitHub Actions", "doc_type": "resume"},
+  {"id": "q09", "question": "What does the job require about Kubernetes?", "expected_substring": "Kubernetes", "doc_type": "jd"},
+  {"id": "q10", "question": "Which skills are nice to have for the role?", "expected_substring": "Open source contributions", "doc_type": "jd"},
+  {"id": "q11", "question": "on-call and production responsibilities", "expected_substring": "on-call", "doc_type": "jd"},
+  {"id": "q12", "question": "How many years of backend experience are required?", "expected_substring": "5+ years", "doc_type": "jd"}
+]

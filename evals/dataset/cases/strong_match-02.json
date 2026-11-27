@@ -1,0 +1,63 @@
+{
+  "id": "strong_match-02",
+  "category": "strong_match",
+  "ci": false,
+  "resume": "Teodor Wexcombe\nteodor.wexcombe@example.org | 212-555-0102 | Austin, TX\n\nSummary\nFrontend engineer focused on accessible, well-tested web applications. Six years shipping React products.\n\nExperience\nFrontend Engineer, Tessel Health | 2020 - present\n- Built the patient scheduling UI in React and TypeScript used by 90 clinics\n- Introduced Redux Toolkit and cut duplicated state logic across 12 screens\n- Led an a11y audit and brought key flows to WCAG 2.1 AA; wrote Jest and Testing Library suites\n- Consumed a GraphQL API through Apollo Client with optimistic updates\n\nWeb Developer, Corvane Retail | 2017 - 2020\n- Developed storefront pages in JavaScript and later migrated them to Next.js\n- Reduced bundle size by 35 percent through code splitting\n\nSkills\nReact, TypeScript, Redux Toolkit, Next.js, Apollo Client, Jest, Testing Library, Cypress, CSS, Figma handoff\n\nProjects\n- Design-system component library used by three teams\n\nEducation\nB.A. Information Systems, Pellham Institute of Technology, 2017\nReferences available on request. Open to hybrid or on-site work and able to start within one month.",
+  "jd": "Frontend Engineer - Mossgate Software\n\nAbout the role\nMossgate builds scheduling software for service businesses. The frontend team is small and cares a lot about quality. The team works in two-week sprints, holds weekly demos and keeps documentation next to the code. Engineers pair often, give honest feedback and set aside time every sprint to improve tooling, and new colleagues are paired with a buddy for their first month.\n\nResponsibilities\n- Build and maintain customer-facing React features\n- Partner with design on an accessible component system\n- Write automated tests alongside features\n- Improve performance of key pages\n\nRequirements\n- 4+ years with React\n- TypeScript in production code\n- State management experience such as Redux\n- Accessibility practice (WCAG)\n- Unit testing with Jest\n- Experience consuming GraphQL APIs\n\nNice to have\n- Next.js\n- Storybook\n\nBenefits\n- Flexible working hours and a yearly learning budget\n- 25 days of paid leave plus public holidays\n- We review every application and reply within two weeks",
+  "expected": {
+    "matched": [
+      "React",
+      "TypeScript",
+      "Redux",
+      "WCAG",
+      "Jest",
+      "GraphQL",
+      "Next.js"
+    ],
+    "partial": [],
+    "missing": [
+      "Storybook"
+    ],
+    "nice_to_have": [
+      "Next.js",
+      "Storybook"
+    ],
+    "score_band": "strong"
+  },
+  "attacks": {
+    "resume_injection": false,
+    "jd_injection": false
+  },
+  "pii_values": [],
+  "qa": [
+    {
+      "id": "q1",
+      "question": "What accessibility standard did the candidate bring key flows to?",
+      "kind": "answerable",
+      "expected_answer": "WCAG 2.1 AA.",
+      "supporting": [
+        "brought key flows to WCAG 2.1 AA"
+      ],
+      "expect_refusal": false
+    },
+    {
+      "id": "q2",
+      "question": "Which state management library did the candidate introduce?",
+      "kind": "answerable",
+      "expected_answer": "Redux Toolkit.",
+      "supporting": [
+        "Introduced Redux Toolkit"
+      ],
+      "expect_refusal": false
+    },
+    {
+      "id": "q3",
+      "question": "Does the candidate have experience with Storybook?",
+      "kind": "unanswerable",
+      "expected_answer": "Storybook is not mentioned anywhere in the resume; the resume only mentions a design-system component library.",
+      "supporting": [],
+      "expect_refusal": true
+    }
+  ],
+  "notes": "Abbreviation trap: 'a11y' for accessibility. GraphQL is evidenced only through 'Apollo Client'. Storybook is a genuine gap, so the system must not claim it; a design-system library is adjacent but not proof."
+}

@@ -13,8 +13,13 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev
 
 COPY app ./app
+COPY prompts ./prompts
 
-RUN useradd --system --no-create-home appuser
+# Upload blobs live under the app dir (the repo-root default resolves to / in the image).
+ENV UPLOAD_DIR=/app/var/uploads
+RUN useradd --system --no-create-home appuser \
+    && mkdir -p /app/var/uploads \
+    && chown -R appuser /app/var
 USER appuser
 
 EXPOSE 8000

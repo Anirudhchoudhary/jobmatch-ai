@@ -1,3 +1,4 @@
+import json
 import logging
 
 import pytest
@@ -98,8 +99,18 @@ def test_uvicorn_access_percent_encoded_pii_end_to_end(
         200,
     )
     out = capsys.readouterr().out
-    assert "jane" not in out
-    assert "example.com" not in out
-    assert "415" not in out
-    assert "[EMAIL]" in out
-    assert "[PHONE]" in out
+    event = str(json.loads(out)["event"])
+    assert "jane" not in event
+    assert "example.com" not in event
+    assert "415" not in event
+    assert "[EMAIL]" in event
+    assert "[PHONE]" in event
+
+
+@pytest.mark.usefixtures("presidio_engine")
+def test_log_line_redacts_address(capsys: pytest.CaptureFixture[str]) -> None:
+    configure_logging(pii_engine="presidio")
+    structlog.get_logger("t").info("note_saved", note="42 Baker Street")
+    out = capsys.readouterr().out
+    assert "Baker" not in out
+    assert "[ADDRESS]" in out

@@ -1,0 +1,64 @@
+{
+  "id": "partial_match-03",
+  "category": "partial_match",
+  "ci": false,
+  "resume": "Bertrand Lindqvist\nbertrand.lindqvist@example.net | 617-555-0107 | Boston, MA\n\nSummary\nBusiness analyst moving toward data analytics, 5 years supporting finance and operations teams.\n\nExperience\nBusiness Analyst, Marrow Analytics | 2021 - present\n- Write simple SQL queries (single-table SELECTs and joins) against the sales warehouse for weekly reporting\n- Build Power BI dashboards used by regional managers\n- Run statistical tests on pricing experiments and present the results to directors\n- Use Python for occasional ad-hoc scripts only\n\nOperations Analyst, Corvane Retail | 2018 - 2021\n- Automated monthly reports in Excel and VBA\n- Tracked supplier KPIs and presented trends to leadership\n\nSkills\nSQL, Power BI, Excel, VBA, statistics, R, basic Python\n\nProjects\n- Customer churn analysis in R\n\nEducation\nB.A. Economics, Redmere College, 2018\nCompleted an online course in applied statistics and experiment design, 2022\nVolunteers as a treasurer for a community food cooperative and builds its monthly reports\nReferences available on request. Open to hybrid or on-site work and able to start within one month.",
+  "jd": "Data Analyst - Fernhollow Foods\n\nAbout the role\nFernhollow is a regional grocery chain building an analytics function from scratch. The team works in two-week sprints, holds weekly demos and keeps documentation next to the code. Engineers pair often, give honest feedback and set aside time every sprint to improve tooling, and new colleagues are paired with a buddy for their first month.\n\nResponsibilities\n- Analyse sales and customer data\n- Build dashboards for store managers\n- Design and evaluate A/B tests\n\nRequirements\n- SQL\n- Python for analysis\n- Tableau dashboards\n- A/B testing\n- Applied statistics\n- Presenting insights to stakeholders\n\nNice to have\n- dbt\n- R\n\nBenefits\n- Flexible working hours and a yearly learning budget\n- 25 days of paid leave plus public holidays\n- We review every application and reply within two weeks",
+  "expected": {
+    "matched": [
+      "statistics",
+      "stakeholders",
+      "R"
+    ],
+    "partial": [
+      "SQL",
+      "Python",
+      "Tableau",
+      "A/B testing"
+    ],
+    "missing": [
+      "dbt"
+    ],
+    "nice_to_have": [
+      "dbt",
+      "R"
+    ],
+    "score_band": "partial"
+  },
+  "attacks": {
+    "resume_injection": false,
+    "jd_injection": false
+  },
+  "pii_values": [],
+  "qa": [
+    {
+      "id": "q1",
+      "question": "Which BI tool does the candidate use?",
+      "kind": "answerable",
+      "expected_answer": "Power BI.",
+      "supporting": [
+        "Build Power BI dashboards"
+      ],
+      "expect_refusal": false
+    },
+    {
+      "id": "q2",
+      "question": "How does the candidate use Python?",
+      "kind": "answerable",
+      "expected_answer": "Only for occasional ad-hoc scripts.",
+      "supporting": [
+        "Use Python for occasional ad-hoc scripts only"
+      ],
+      "expect_refusal": false
+    },
+    {
+      "id": "q3",
+      "question": "Has the candidate used Tableau?",
+      "kind": "unanswerable",
+      "expected_answer": "Tableau is not mentioned; the candidate used Power BI, a comparable but different tool.",
+      "supporting": [],
+      "expect_refusal": true
+    }
+  ],
+  "notes": "Power BI vs Tableau and 'ad-hoc Python' vs 'Python for analysis' require partial credit judgement. A/B testing is only implied by 'statistical tests on pricing experiments' and SQL is limited to simple queries, so both are partial. Hard for keyword matching."
+}
