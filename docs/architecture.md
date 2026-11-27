@@ -462,8 +462,10 @@ change our mind later.
   leaving Budgets alerts as the only AWS cost backstop. Per-IP limits use
   `CloudFront-Viewer-Address`, trusted only on requests that carry the origin token (without
   it Lambda would see CloudFront's address, not the viewer's).
-- **60 s origin idle limit:** CloudFront cuts a response when the origin is silent that long;
-  streams send tokens continuously, so only a stalled model call is affected.
+- **60 s origin idle limit:** CloudFront cuts a response when the origin is silent that long.
+  `sse_stream` sends a `: keep-alive` SSE comment whenever no event has gone out for 15 s
+  (`SSE_KEEPALIVE_S`), so long structured model calls inside analysis or suggestions do not
+  trip it; the browser's SSE reader ignores comment-only blocks.
 - **First visit is slow:** a Lambda cold start (Presidio, spaCy) hits the first API call.
 - **Bedrock guardrail not created**, so its eval rows stay empty; the spec's events/analytics
   table is deferred.

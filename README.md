@@ -123,12 +123,18 @@ curl -s -X POST localhost:8000/api/suggestions -H 'Content-Type: application/jso
   -d '{"analysis_id":"<analysis_id from the done event>"}'
 ```
 
+`POST /api/stream/suggestions` (same body, same daily allowance and spend cap) streams the same run: `progress` events (`loading`, `selecting`, `rewriting`, `validating`), then one `done` event carrying the `BulletSuggestions`. The site uses it; `POST /api/suggestions` stays for compatibility.
+
+```sh
+curl -N -X POST localhost:8000/api/stream/suggestions -H 'Content-Type: application/json' -d '{}'
+```
+
 Suggestions return `BulletSuggestions`: `analysis_id`, `suggestions` (each with `original_chunk_id`, `original`, `rewritten`, `rationale` and `target_skills`), `rejected_count`, `analyst` and `request_id`. At most 5 are returned.
 
 Errors come in two shapes:
 
 - `POST /api/suggestions` returns the usual JSON envelope `{"error": {"code", "message", "request_id"}}` with the HTTP status below.
-- `POST /api/stream/analyses` has already answered HTTP 200 and sent `progress` events when a failure happens, so it ends the stream with one `event: error` whose data is `{"code", "message", "request_id"}` (no `done` event follows).
+- `POST /api/stream/analyses` and `POST /api/stream/suggestions` have already answered HTTP 200 and sent `progress` events when a failure happens, so they end the stream with one `event: error` whose data is `{"code", "message", "request_id"}` (no `done` event follows).
 
 Codes: `documents_required` (409, no resume or job description yet), `no_requirements` (422, nothing extractable from the job description), `analysis_required` (409, run an analysis before asking for suggestions), `analysis_not_found` (404), `model_output_invalid` (502) and `provider_unavailable` (503). In the stream the number is not sent; only the code is.
 
@@ -451,9 +457,9 @@ A Next.js static site in `frontend/` (static export, Tailwind) is served at http
 ### What the site does
 
 1. **Sign in:** enter an email, then the 6-digit code that was emailed.
-2. **Documents:** upload a resume and a job description (PDF or pasted text), or load the built-in samples. Ingestion progress streams in, and a reload restores your documents.
-3. **Analysis:** the match score with its breakdown and cited evidence, and resume bullet suggestions.
-4. **Chat:** streamed answers with clickable citations that open the cited chunk, and a "Show guardrails" panel listing the verdict and every guardrail that fired.
+2. **Documents:** upload a resume (PDF) and paste a job description (text), or load the built-in samples. Ingestion progress streams in, and a reload restores your documents.
+3. **Analysis:** the match score with its breakdown and cited evidence, and resume bullet suggestions (streamed progress, then the rewrites).
+4. **Chat:** streamed answers with clickable citations that open the cited chunk, and a "Show guardrails" panel listing the verdict and every check that ran, with the ones that fired highlighted.
 
 ### Run it locally
 
@@ -478,8 +484,10 @@ make fe-e2e     # Playwright: sign in, sample, analysis, chat, guardrails, reloa
 ### Deploy
 
 ```bash
+make migrate-prod                          # Phase 8 adds migration 0009: run it before the new API
 BUDGET_EMAIL=you@example.com make deploy   # now also creates the token, certificate, distribution and DNS
 make deploy-frontend                       # build, sync to S3, invalidate CloudFront
+make smoke-prod                            # health, site 200, /api/auth/me 401, Function URL /api 403
 ```
 
 `make deploy` must come first: `make deploy-frontend` refuses to run until the distribution is recorded in `var/deploy/state.json`. The site is then at https://jobmatch.ntrye.com. The first `make deploy` waits for ACM to validate the certificate over DNS (up to 20 minutes) and for the distribution to deploy.
@@ -497,7 +505,7 @@ The Route 53 hosted zone for `ntrye.com` is managed by hand. The scripts look it
 
 ### Teardown
 
-`make teardown` now starts with the edge: the DNS alias and validation records, the distribution, the certificate, the CloudFront Function and the origin access control. The site bucket is emptied and deleted with the uploads bucket, and the rest runs as in Phase 7. CloudFront must be disabled and fully deployed before it can be deleted, which can take 15 minutes or more.
+`make teardown` now starts with the edge, in this order: the `jobmatch.ntrye.com` alias records, the distribution, the CloudFront Function, the origin access control, the certificate's DNS validation record and then the certificate. The site bucket is emptied and deleted with the uploads bucket, and the rest runs as in Phase 7. CloudFront must be disabled and fully deployed before it can be deleted, which can take 15 minutes or more.
 
 ### Cost
 
@@ -505,7 +513,7 @@ The Route 53 hosted zone is $0.50 per month. CloudFront, S3, ACM and the CloudFr
 
 ### Known limits
 
-- CloudFront cuts a streamed response when the origin is silent for more than 60 s (the default quota). Chat and analysis stream continuously, so this only matters for a stalled model call.
+- CloudFront cuts a response when the origin sends nothing for more than 60 s (the default quota). The SSE endpoints (documents, samples, analysis, suggestions, chat) send a `: keep-alive` comment after 15 s without an event (`SSE_KEEPALIVE_S`), so a slow model call keeps the connection open. The JSON `POST /api/suggestions` is not streamed and still fails with a 504 if it takes longer than 60 s; the site uses `POST /api/stream/suggestions`.
 - Sessions are stateless, as in Phase 7: logout does not revoke a stolen cookie.
 - DNS for `ntrye.com` moved from GoDaddy to Route 53, so the GoDaddy DNS panel is inactive; edit records in Route 53.
 - The first visit after idle time pays a Lambda cold start (several seconds) on the first API call.
