@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Analysis } from "@/components/Analysis";
+import { Chat } from "@/components/Chat";
 import { Documents } from "@/components/Documents";
 import { useSession } from "@/lib/session";
 
@@ -41,7 +42,7 @@ export default function Workspace() {
       </header>
       <Documents onReady={() => setDocsVersion((v) => v + 1)} />
       {docsVersion > 0 ? <Analysis docsVersion={docsVersion} /> : null}
-      {/* Chat (Task 8) mounts here, below the results. */}
+      {docsVersion > 0 ? <Chat /> : null}
     </main>
   );
 }
