@@ -53,17 +53,24 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        results, judge_cost = asyncio.run(_run(args.profile, args.variant, args.subset))
+        eval_settings(args.profile, args.variant)  # fail fast on invalid settings only
     except ValidationError as exc:
         reasons = "; ".join(e["msg"] for e in exc.errors())
         print(f"invalid settings for profile {args.profile!r}: {reasons}", file=sys.stderr)
         return 2
+    baseline: dict[str, float] | None = None
+    if args.baseline is not None:
+        try:
+            baseline = json.loads(args.baseline.read_text())["summary"]
+        except (OSError, ValueError, KeyError) as exc:
+            print(f"cannot read baseline {args.baseline}: {type(exc).__name__}", file=sys.stderr)
+            return 2
 
+    results, judge_cost = asyncio.run(_run(args.profile, args.variant, args.subset))
     summary = summarize(results)
     if judge_cost is not None:
         summary["judge_cost_usd"] = judge_cost
     failures = check(summary, load_thresholds(args.thresholds, args.profile))
-    baseline = json.loads(args.baseline.read_text())["summary"] if args.baseline else None
     markdown = render_markdown(
         summary,
         results,

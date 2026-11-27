@@ -258,3 +258,14 @@ async def test_quarantined_chunk_excluded_from_retrieval_and_analysis(
     assert vec
     for chunks in (vec, txt, loaded.resume):
         assert all("Ignore all previous" not in c.text for c in chunks)
+
+
+async def test_search_ties_break_by_doc_then_ordinal(world: World) -> None:
+    emb = await world.embedder.embed_query("Python backend engineer")
+    async with world.sm() as s:
+        ids = await active_doc_ids(s, world.user_a, embed_model=world.embedder.embed_model)
+        vec = await vector_search(s, user_id=world.user_a, doc_ids=ids, query_embedding=emb, k=20)
+        txt = await text_search(s, user_id=world.user_a, doc_ids=ids, query="Python", k=20)
+    for hits in (vec, txt):
+        keys = [(-round(h.score, 12), h.doc_id, h.ordinal) for h in hits]
+        assert keys == sorted(keys)

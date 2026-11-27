@@ -79,7 +79,7 @@ eval-baseline:
 
 # Real Anthropic judge and Bedrock: spends the Anthropic key; ask first. VARIANT/SUBSET override.
 eval-live:
-	cd backend && $(UV) run --group evals python -m scripts.run_evals --profile live --variant $${VARIANT:-system} --subset $${SUBSET:-ci} --out ../var/evals/live --baseline ../evals/baseline.json
+	cd backend && $(UV) run --group evals python -m scripts.run_evals --profile live --variant $${VARIANT:-system} --subset $${SUBSET:-ci} --out ../var/evals/live $$(test -f ../evals/baseline.json && echo --baseline ../evals/baseline.json)
 
 # Writes the committed live baseline (naive variant, full set); spends the Anthropic key; ask first.
 eval-live-baseline:
