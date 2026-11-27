@@ -7,6 +7,8 @@ import boto3
 from botocore.config import Config
 from langchain_core.language_models import BaseChatModel
 
+from app.analysis.analyst import Analyst, ClaudeAnalyst
+from app.analysis.heuristic import HeuristicAnalyst
 from app.core.settings import get_settings
 from app.llm.chat import make_chat_model
 from app.llm.embeddings import BedrockTitanEmbedder, Embedder, HashEmbedder
@@ -18,6 +20,8 @@ class Providers:
     embedder: Embedder
     reranker: Reranker
     chat_model: BaseChatModel
+    structured_models: tuple[BaseChatModel, BaseChatModel]
+    analyst: Analyst
 
 
 @lru_cache
@@ -41,4 +45,18 @@ def get_providers() -> Providers:
         reranker = BedrockReranker(agent_client, s.effective_rerank_arn)
     else:
         reranker = NoopReranker()
-    return Providers(embedder, reranker, make_chat_model(s))
+    tokens, timeout = s.structured_max_tokens, s.structured_timeout_s
+    structured = (
+        make_chat_model(s, model=s.chat_model, max_tokens=tokens, timeout_s=timeout),
+        make_chat_model(s, model=s.strong_chat_model, max_tokens=tokens, timeout_s=timeout),
+    )
+    analyst: Analyst
+    if s.llm_provider == "anthropic":
+        analyst = ClaudeAnalyst(
+            structured,
+            max_attempts=s.structured_max_attempts,
+            strong_input_chars=s.strong_input_chars,
+        )
+    else:
+        analyst = HeuristicAnalyst()
+    return Providers(embedder, reranker, make_chat_model(s), structured, analyst)

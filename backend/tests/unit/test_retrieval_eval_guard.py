@@ -2,19 +2,27 @@ from pathlib import Path
 
 import pytest
 
+from app.analysis.heuristic import HeuristicAnalyst
 from app.core.settings import get_settings
 from app.llm.chat import make_chat_model
 from app.llm.embeddings import HashEmbedder
 from app.llm.providers import Providers
 from app.llm.rerank import NoopReranker
 from scripts import retrieval_eval
+from tests.fixtures.structured import ladder
 
 
 def test_refuses_to_write_committed_baseline_with_offline_embedder(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://u:p@127.0.0.1:1/db")
-    providers = Providers(HashEmbedder(), NoopReranker(), make_chat_model(get_settings()))
+    providers = Providers(
+        HashEmbedder(),
+        NoopReranker(),
+        make_chat_model(get_settings()),
+        ladder(),
+        HeuristicAnalyst(),
+    )
     out = retrieval_eval.REPO_ROOT / "evals" / "zqx_guard_test.json"
 
     def no_run(*_: object, **__: object) -> None:
@@ -36,7 +44,13 @@ def test_offline_output_outside_evals_is_allowed(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://u:p@127.0.0.1:1/db")
-    providers = Providers(HashEmbedder(), NoopReranker(), make_chat_model(get_settings()))
+    providers = Providers(
+        HashEmbedder(),
+        NoopReranker(),
+        make_chat_model(get_settings()),
+        ladder(),
+        HeuristicAnalyst(),
+    )
 
     async def fake_run(*_: object) -> dict[str, object]:
         return {"providers": {}, "modes": {}}

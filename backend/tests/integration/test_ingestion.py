@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from app.analysis.heuristic import HeuristicAnalyst
 from app.api.deps import get_current_user_id
 from app.core.errors import ProviderError
 from app.core.logging import configure_logging
@@ -25,6 +26,7 @@ from app.schemas.documents import DocumentRequest, ProgressEvent
 from tests.fixtures.documents import JD, RESUME
 from tests.fixtures.pdfs import make_pdf
 from tests.fixtures.sse import parse_sse
+from tests.fixtures.structured import ladder
 
 pytestmark = pytest.mark.integration
 
@@ -128,7 +130,11 @@ async def env(engine: AsyncEngine, tmp_path: Path) -> AsyncIterator[Env]:
     app.dependency_overrides[get_blob_store] = lambda: blobs
     holder = {"embedder": embedder}
     app.dependency_overrides[get_providers] = lambda: Providers(
-        holder["embedder"], NoopReranker(), make_chat_model(get_settings())
+        holder["embedder"],
+        NoopReranker(),
+        make_chat_model(get_settings()),
+        ladder(),
+        HeuristicAnalyst(),
     )
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:

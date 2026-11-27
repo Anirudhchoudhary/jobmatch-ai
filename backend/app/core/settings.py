@@ -41,7 +41,14 @@ class Settings(_Bootstrap):
     anthropic_api_key: SecretStr | None = None
     chat_model: str = "claude-haiku-5-5"
     chat_max_tokens: int = 1024
+    strong_chat_model: str = "claude-sonnet-5-5"
+    # Adaptive thinking counts against max_tokens, so structured calls need headroom.
+    structured_max_tokens: int = 12_000
+    structured_max_attempts: int = 2
+    strong_input_chars: int = 24_000
+    suggest_max_bullets: int = 5
     llm_timeout_s: float = 30.0
+    structured_timeout_s: float = 120.0
 
     # Bedrock
     embed_model_id: str = "amazon.titan-embed-text-v2:0"

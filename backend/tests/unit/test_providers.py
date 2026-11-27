@@ -78,3 +78,37 @@ async def test_fake_chat_returns_fresh_messages(monkeypatch: pytest.MonkeyPatch)
     b = await m.ainvoke([HumanMessage("hi")])
     assert a is not b
     assert a.id != b.id
+
+
+def test_structured_models_ladder(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", DB)
+    fake = get_providers().structured_models
+    assert isinstance(fake, tuple)
+    assert len(fake) == 2
+    get_providers.cache_clear()
+    monkeypatch.setenv("LLM_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test123")
+    get_settings.cache_clear()
+    models = get_providers().structured_models
+    assert tuple(m.model for m in models) == ("claude-haiku-5-5", "claude-sonnet-5-5")  # type: ignore[attr-defined]
+    assert all(m.max_tokens == 12_000 for m in models)  # type: ignore[attr-defined]
+    assert all(m.default_request_timeout == 120.0 for m in models)  # type: ignore[attr-defined]
+    assert get_providers().chat_model.default_request_timeout == 30.0  # type: ignore[attr-defined]
+    get_providers.cache_clear()
+
+
+def test_analyst_selection(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.analysis.analyst import ClaudeAnalyst
+    from app.analysis.heuristic import HeuristicAnalyst
+
+    monkeypatch.setenv("DATABASE_URL", DB)
+    assert isinstance(get_providers().analyst, HeuristicAnalyst)
+    get_providers.cache_clear()
+    monkeypatch.setenv("LLM_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test123")
+    get_settings.cache_clear()
+    analyst = get_providers().analyst
+    assert isinstance(analyst, ClaudeAnalyst)
+    assert analyst.name.startswith("claude:claude-haiku-5-5:claude-sonnet-5-5:")
+    assert analyst.name.endswith(":a1")
+    get_providers.cache_clear()
