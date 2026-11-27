@@ -1,0 +1,41 @@
+"""FastAPI app factory."""
+
+import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from pydantic import ValidationError
+
+from app import __version__
+from app.api.health import router as health_router
+from app.core.logging import configure_logging
+from app.core.settings import get_settings
+from app.db.engine import get_engine
+
+
+def _log_level() -> str:
+    """Settings are optional at app creation (offline unit tests have no DATABASE_URL)."""
+    try:
+        return get_settings().log_level
+    except ValidationError:
+        return os.environ.get("LOG_LEVEL", "INFO")
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    yield
+    # Dispose only an engine that was actually created; never create one just to dispose it.
+    if get_engine.cache_info().currsize:
+        await get_engine().dispose()
+
+
+def create_app() -> FastAPI:
+    # Runs at import time under uvicorn, after its dictConfig, so this override is intentional.
+    configure_logging(_log_level())
+    app = FastAPI(title="JobMatch AI", version=__version__, lifespan=lifespan)
+    app.include_router(health_router)
+    return app
+
+
+app = create_app()

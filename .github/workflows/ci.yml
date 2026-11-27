@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.13.10"
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - run: uv python install 3.12
+      - run: make install lint typecheck test
+
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          # Non-secret dev-only values, same as docker-compose.yml
+          POSTGRES_USER: jobmatch
+          POSTGRES_PASSWORD: jobmatch
+          POSTGRES_DB: jobmatch
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U jobmatch"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql+psycopg://jobmatch:jobmatch@localhost:5432/jobmatch
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.13.10"
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - run: uv python install 3.12
+      - run: make install migrate test-integration
+
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
