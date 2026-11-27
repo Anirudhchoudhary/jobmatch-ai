@@ -10,12 +10,14 @@ permissions:
   contents: read
 
 concurrency:
-  group: evals-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # An unrelated label event gets its own group so it cannot cancel a running eval.
+  group: evals-${{ github.workflow }}-${{ (github.event.action == 'labeled' && github.event.label.name != 'full-eval') && github.run_id || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # Runs on every PR, forks included: no secrets, no extra permissions.
   eval-offline:
+    if: github.event.action != 'labeled' || github.event.label.name == 'full-eval'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -60,6 +62,8 @@ jobs:
   eval-live:
     if: >-
       vars.AWS_EVAL_ROLE_ARN != '' &&
+      github.actor != 'dependabot[bot]' &&
+      (github.event.action != 'labeled' || github.event.label.name == 'full-eval') &&
       (github.event_name == 'push' ||
       github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
