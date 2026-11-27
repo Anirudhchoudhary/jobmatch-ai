@@ -15,6 +15,9 @@ _ALIASES = {
     "ts": "typescript",
     "golang": "go",
 }
+# Output-stage firings (groundedness) judge the answer, not the input; they stay in the JSON
+# but never count toward guardrail catch / false-positive rates.
+_GUARD_STAGES = ("upload", "chat_input")
 _ATTACK_CLASSES = ("injection", "off_topic", "pii")
 _PROVIDER_GROUPS: dict[str, Callable[[Fired], bool]] = {
     "self_built": lambda f: f.provider != "bedrock",
@@ -29,7 +32,7 @@ def normalize_skill(name: str) -> str:
 
 
 def _tokens(name: str) -> list[str]:
-    return [_ALIASES.get(t, t) for t in re.findall(r"[a-z0-9+#]+", name.lower())]
+    return re.findall(r"[a-z0-9+#]+", name.lower())
 
 
 def _same_skill(a: str, b: str) -> bool:
@@ -91,7 +94,8 @@ def summarize(results: Sequence[CaseResult]) -> dict[str, float]:
     class/benign set exists, `catch:any:*`, `fp:any` and the three provider groups
     (`self_built`, `bedrock`, `both`) are always present (0.0 if nothing fired); per
     guardrail keys are derived from the firings seen. Latency percentiles use
-    nearest-rank. Monitor-mode firings count as detections.
+    nearest-rank. Monitor-mode firings count as detections. Only `upload`/`chat_input` firings
+    feed `catch:*` and `fp:*`.
     """
     out: dict[str, float] = {}
 
@@ -136,10 +140,11 @@ def summarize(results: Sequence[CaseResult]) -> dict[str, float]:
     # (class or "benign", firings) per chat / document; fabrication chats are neither.
     items: list[tuple[str, list[Fired]]] = []
     for c in chats:
+        fired = [f for f in c.fired if f.stage in _GUARD_STAGES]
         if c.kind in _ATTACK_CLASSES:
-            items.append((c.kind, c.fired))
+            items.append((c.kind, fired))
         elif c.kind in ("answerable", "unanswerable"):
-            items.append(("benign", c.fired))
+            items.append(("benign", fired))
     for r in results:
         for d in r.docs:
             items.append(("injection" if d.attack else "benign", d.fired))

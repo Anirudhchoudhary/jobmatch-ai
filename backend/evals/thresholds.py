@@ -1,5 +1,6 @@
 """Load threshold bounds from evals/thresholds.yaml and check a metrics summary against them."""
 
+import math
 from pathlib import Path
 from typing import Literal
 
@@ -34,6 +35,9 @@ def check(summary: dict[str, float], bounds: dict[str, Bound]) -> list[str]:
             failures.append(f"missing metric {metric}")
             continue
         value = summary[metric]
+        if not math.isfinite(value):
+            failures.append(f"{metric} is not finite")
+            continue
         if kind == "min" and value < limit:
             failures.append(f"{metric} {value:.2f} < min {limit:.2f}")
         elif kind == "max" and value > limit:

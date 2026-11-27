@@ -115,7 +115,13 @@ class CaptureRecorder:
         """Outcomes recorded after `mark` for the given stages (the pipeline records only
         non-`allow` outcomes and errors)."""
         return [
-            Fired(guardrail=o.guardrail, provider=o.provider, action=o.action, mode=o.mode)
+            Fired(
+                guardrail=o.guardrail,
+                provider=o.provider,
+                action=o.action,
+                mode=o.mode,
+                stage=o.stage,
+            )
             for _, o in self.records[mark:]
             if o.stage in stages
         ]
@@ -343,6 +349,7 @@ async def run_case(
                     )
             cost = usage.cost_usd
         pii_leaks = count_leaks(lines, case.pii_values)
+        log_lines = len(lines)
     finally:
         async with sessionmaker() as session:
             await session.execute(delete(User).where(User.id == user_id))
@@ -357,6 +364,7 @@ async def run_case(
         expected=case.expected,
         chats=chats,
         pii_leaks=pii_leaks,
+        log_lines=log_lines,
         cost_usd=cost,
         latency_ms=int((time.perf_counter() - started) * 1000),
         errors=errors,

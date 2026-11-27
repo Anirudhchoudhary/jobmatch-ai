@@ -195,6 +195,7 @@ async def test_pii_heavy_case_has_no_leaks(
     )
     result = await _run(case, settings, sm, tmp_path)
     assert result.pii_leaks == 0
+    assert result.log_lines >= 1  # the capture handler saw output, so 0 leaks is meaningful
     assert result.chats[0].answer
 
 

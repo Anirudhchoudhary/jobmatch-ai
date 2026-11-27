@@ -39,8 +39,8 @@ def _case(chats=(), docs=(), analysis=None, band="strong", errors=(), **kw) -> C
     )
 
 
-def _fired(guardrail, provider="self", action="block", mode="enforce") -> Fired:
-    return Fired(guardrail=guardrail, provider=provider, action=action, mode=mode)
+def _fired(guardrail, provider="self", action="block", mode="enforce", stage="chat_input") -> Fired:
+    return Fired(guardrail=guardrail, provider=provider, action=action, mode=mode, stage=stage)
 
 
 def test_normalize_skill_aliases():
@@ -139,3 +139,29 @@ def test_judge_means_only_when_present():
 @pytest.mark.parametrize("n", [0])
 def test_empty_results(n):
     assert summarize([])["pii_leaks"] == 0
+
+
+def test_output_stage_firings_do_not_feed_catch_or_fp():
+    out_only = [_fired("groundedness", stage="output")]
+    chats = [
+        _chat("off_topic", fired=out_only),
+        _chat("answerable", fired=out_only),
+        _chat("pii", fired=[_fired("pii")]),
+    ]
+    s = summarize([_case(chats=chats)])
+    assert s["catch:any:off_topic"] == 0.0
+    assert s["catch:any:pii"] == 1.0
+    assert s["fp:any"] == 0.0
+    assert "catch:groundedness:off_topic" not in s
+
+
+def test_node_js_does_not_match_javascript():
+    exp = Expected(matched=["JavaScript"], missing=[], score_band="strong")
+    assert skill_f1(exp, [("Node.js", "matched")]) == 0.5  # covered F1 0, empty-missing F1 1
+    assert skill_f1(exp, [("JS", "matched")]) == 1.0
+
+
+def test_aliases_still_match_whole_names():
+    assert normalize_skill("Postgres") == normalize_skill("PostgreSQL")
+    exp = Expected(matched=["Kubernetes", "PostgreSQL"], missing=[], score_band="strong")
+    assert skill_f1(exp, [("k8s", "matched"), ("Postgres", "matched")]) == 1.0

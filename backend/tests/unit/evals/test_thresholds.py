@@ -42,3 +42,11 @@ def test_repo_thresholds_file_loads():
     path = DATASET_DIR.parent / "thresholds.yaml"
     assert load_thresholds(path, "offline")["pii_leaks"] == ("max", 0.0)
     assert load_thresholds(path, "live")["skill_f1"] == ("min", 0.7)
+
+
+def test_check_rejects_non_finite_values():
+    msgs = check(
+        {"a": float("nan"), "b": float("inf")},
+        {"a": ("min", 0.5), "b": ("max", 0.5)},
+    )
+    assert msgs == ["a is not finite", "b is not finite"]

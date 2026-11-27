@@ -15,9 +15,9 @@ import os
 from collections.abc import Sequence
 from typing import Any
 
-os.environ.setdefault("DEEPEVAL_TELEMETRY_OPT_OUT", "YES")
-os.environ.setdefault("DEEPEVAL_DISABLE_DOTENV", "1")
-os.environ.setdefault("DEEPEVAL_UPDATE_WARNING_OPT_IN", "NO")
+os.environ["DEEPEVAL_TELEMETRY_OPT_OUT"] = "YES"
+os.environ["DEEPEVAL_DISABLE_DOTENV"] = "1"
+os.environ["DEEPEVAL_UPDATE_WARNING_OPT_IN"] = "NO"
 os.environ.pop("CONFIDENT_API_KEY", None)
 
 import structlog  # noqa: E402
@@ -35,7 +35,6 @@ from pydantic import BaseModel  # noqa: E402
 
 from app.core.settings import Settings  # noqa: E402
 from app.observability.usage import USAGE_CALLBACK  # noqa: E402
-from evals.metrics import refused_like  # noqa: E402
 from evals.results import ChatResult  # noqa: E402
 
 log = structlog.get_logger(__name__)
@@ -117,7 +116,8 @@ async def _judge_one(chat: ChatResult, judge: DeepEvalBaseLLM, sem: asyncio.Sema
 async def judge_chats(
     chats: Sequence[ChatResult], judge: DeepEvalBaseLLM, *, concurrency: int = 4
 ) -> None:
-    """Score answerable, non-refused chats in place; everything else is left untouched."""
+    """Score every answerable chat whose answer the user saw (not refused, not blocked); flagged
+    or ungrounded answers are judged too. Everything else is left untouched."""
     sem = asyncio.Semaphore(concurrency)
-    todo = [c for c in chats if c.kind == "answerable" and not refused_like(c)]
+    todo = [c for c in chats if c.kind == "answerable" and not c.refused and c.blocked_by is None]
     await asyncio.gather(*(_judge_one(c, judge, sem) for c in todo))

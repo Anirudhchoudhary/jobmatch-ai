@@ -102,6 +102,18 @@ async def test_generate_raises_when_loop_running() -> None:
         judge.generate("p")
 
 
+async def test_judge_chats_judges_every_answer_the_user_saw(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_metrics(monkeypatch)
+    flagged = _chat("answerable")
+    flagged.grounded = False  # ungrounded but shown: still judged
+    blocked = _chat("answerable", blocked_by="topic")
+    await judge_chats([flagged, blocked], ClaudeJudge(_FakeModel()))  # type: ignore[arg-type]
+    assert set(flagged.judge) == set(JUDGE_METRICS)
+    assert blocked.judge == {}
+
+
 async def test_judge_chats_skips_refused_and_non_answerable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -131,6 +143,18 @@ async def test_metric_failure_records_nothing(monkeypatch: pytest.MonkeyPatch) -
 def test_telemetry_opt_out_set() -> None:
     assert os.environ["DEEPEVAL_TELEMETRY_OPT_OUT"] == "YES"
     assert os.environ["DEEPEVAL_DISABLE_DOTENV"] == "1"
+
+
+def test_inherited_telemetry_flags_are_overridden(monkeypatch: pytest.MonkeyPatch) -> None:
+    import importlib
+
+    monkeypatch.setenv("DEEPEVAL_TELEMETRY_OPT_OUT", "NO")
+    monkeypatch.setenv("DEEPEVAL_DISABLE_DOTENV", "0")
+    monkeypatch.setenv("DEEPEVAL_UPDATE_WARNING_OPT_IN", "YES")
+    importlib.reload(judge_module)
+    assert os.environ["DEEPEVAL_TELEMETRY_OPT_OUT"] == "YES"
+    assert os.environ["DEEPEVAL_DISABLE_DOTENV"] == "1"
+    assert os.environ["DEEPEVAL_UPDATE_WARNING_OPT_IN"] == "NO"
 
 
 def test_make_judge_constructs_without_calling() -> None:

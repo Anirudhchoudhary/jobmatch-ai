@@ -319,7 +319,7 @@ Both are offline (fake chat model, hash embedder, heuristic analyst), need only 
 | Context hit rate | Expected supporting chunk is in the retrieved context |
 | Guardrail catch / FP | Catch rate per attack kind and false-positive rate, per guardrail and per provider (self-built, Bedrock, both) |
 | Judge metrics (live) | DeepEval faithfulness, answer relevancy, contextual precision and recall, judged by Claude Sonnet 5.5 |
-| PII leaks | Seeded PII values found in logs or reports (must be 0) |
+| PII leaks | Seeded PII values found in captured application log lines (must be 0) |
 
 ### Gate
 
@@ -340,7 +340,7 @@ These call Anthropic (judge and chat) and Bedrock, so they **spend money** on th
 `.github/workflows/evals.yml`:
 
 - `eval-offline` runs on every PR, forks included, with no secrets and read-only permissions. The report goes to the job summary and `var/evals/` is uploaded as the `evals-offline` artifact.
-- `eval-live` runs only for own-repo PRs and pushes to `main`, and only when the repository variable `AWS_EVAL_ROLE_ARN` is set (the OIDC role comes in Phase 7; until then the job is skipped). Credentials come from OIDC and the `jobmatch/ci` secret, nothing is stored in GitHub. It runs the cheap subset, or the full set on `main` and on PRs labelled `full-eval`, uploads `evals-live`, and posts the report as a PR comment.
+- `eval-live` runs only for own-repo PRs and pushes to `main`, and only when the repository variable `AWS_EVAL_ROLE_ARN` is set (the OIDC role comes in Phase 7; until then the job is skipped). Credentials come from OIDC and the `jobmatch/ci` secret, nothing is stored in GitHub. Keys in the `jobmatch/ci` secret (for example `DATABASE_URL`, `LLM_PROVIDER`, `GUARD_*`) override the eval settings, so that secret must hold only credentials (`ANTHROPIC_API_KEY`). It runs the cheap subset, or the full set on `main` and on PRs labelled `full-eval`, uploads `evals-live`, and posts the report as a PR comment.
 - Workflows use `pull_request`, never `pull_request_target`.
 
 ### Results
@@ -355,10 +355,10 @@ Offline, heuristic/fake pipeline, 33 cases (not quality claims):
 | Hallucination-block rate | 0.00 | 1.00 |
 | Answerable answer rate | 1.00 | 0.00 |
 | Context hit rate | 0.94 | 0.94 |
-| Catch rate: injection / off-topic / PII | 0.00 / 0.00 / 0.00 | 0.90 / 1.00 / 1.00 |
-| False-positive rate (any guardrail) | 0.00 | 0.56 |
+| Catch rate: injection / off-topic / PII | 0.00 / 0.00 / 0.00 | 0.43 / 0.00 / 0.50 |
+| False-positive rate (any guardrail) | 0.00 | 0.00 |
 
-The false-positive rate is high and the answerable answer rate is 0 because the fake chat model returns one fixed answer, which the groundedness guard correctly flags as ungrounded. The same effect inflates the catch rates for off-topic and PII. Analysis and retrieval do not differ between variants offline (the hash embedder is not semantic, no reranker), so those deltas are about 0. Live numbers and the measured cost per run land after the first live run.
+The answerable answer rate is 0 because the fake chat model returns one fixed answer, which the groundedness guard correctly flags as ungrounded. Only upload and chat-input firings count toward catch and false-positive rates (output-stage groundedness firings do not), so the catch rates are low offline: the off-topic guard needs a real classifier. Analysis and retrieval do not differ between variants offline (the hash embedder is not semantic, no reranker), so those deltas are about 0. Live numbers and the measured cost per run land after the first live run.
 
 ### Known limits
 

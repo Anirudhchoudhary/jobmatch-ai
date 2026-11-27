@@ -14,6 +14,7 @@ class Fired(BaseModel):
     provider: str
     action: str
     mode: str
+    stage: str  # upload | chat_input | output
 
 
 class DocResult(BaseModel):
@@ -55,6 +56,7 @@ class CaseResult(BaseModel):
     expected: Expected
     chats: list[ChatResult]
     pii_leaks: int
+    log_lines: int = 0  # captured log lines scanned for leaks
     cost_usd: float
     latency_ms: int
     errors: list[str]  # error codes only, never messages containing text

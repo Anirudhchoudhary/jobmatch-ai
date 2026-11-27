@@ -48,10 +48,9 @@ def _quality(summary: dict[str, float], baseline: dict[str, float] | None) -> li
 
 
 def _guardrails(summary: dict[str, float]) -> list[str]:
-    names = sorted(
+    names = list(
         {k.split(":")[1] for k in summary if k.startswith("catch:")}
-        | {k[3:] for k in summary if k.startswith("fp:")},
-        key=lambda n: (not n.startswith("provider="), n != "any", n),
+        | {k[3:] for k in summary if k.startswith("fp:")}
     )
     # any, then provider groups, then individual guardrails
     names.sort(key=lambda n: (0 if n == "any" else 1 if n.startswith("provider=") else 2, n))
