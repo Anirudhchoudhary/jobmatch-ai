@@ -4,13 +4,24 @@ from collections.abc import Iterator
 from itertools import count
 from typing import Literal
 
+import anthropic
 from langchain_anthropic import ChatAnthropic
-from langchain_core.language_models import BaseChatModel
+from langchain_core.language_models import BaseChatModel, LanguageModelInput
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.runnables import Runnable
 
 from app.core.settings import Settings
 from app.observability.usage import USAGE_CALLBACK
+
+type ChatRunnable = Runnable[LanguageModelInput, BaseMessage]
+
+# Transient provider trouble: worth switching models. Anything else (bad request, auth) is not.
+RETRYABLE_ERRORS: tuple[type[BaseException], ...] = (
+    anthropic.RateLimitError,
+    anthropic.InternalServerError,
+    anthropic.APIConnectionError,
+)
 
 FAKE_ANSWER = "(fake model) I can't answer without a real model [r1]."
 
@@ -41,3 +52,7 @@ def make_chat_model(
             callbacks=[USAGE_CALLBACK],
         )
     return GenericFakeChatModel(messages=_fake_replies())
+
+
+def with_fallback(primary: BaseChatModel, fallback: BaseChatModel) -> ChatRunnable:
+    return primary.with_fallbacks([fallback], exceptions_to_handle=RETRYABLE_ERRORS)

@@ -120,7 +120,17 @@ class ClaudeAnalyst:
     ) -> T:
         messages: list[BaseMessage] = [
             SystemMessage(self._prompts[prompt].text),
-            HumanMessage(f"{format_context(labelled)}\n\n{task}"),
+            # The context block is cached: feedback retries and same-model attempts reuse it.
+            HumanMessage(
+                content=[
+                    {
+                        "type": "text",
+                        "text": format_context(labelled),
+                        "cache_control": {"type": "ephemeral"},
+                    },
+                    {"type": "text", "text": task},
+                ]
+            ),
         ]
         result = await run_structured(
             schema,

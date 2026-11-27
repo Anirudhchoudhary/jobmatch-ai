@@ -12,6 +12,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from pydantic import BaseModel, ValidationError
 
 from app.core.errors import AppError, ProviderError
+from app.llm.chat import RETRYABLE_ERRORS
 from app.llm.errors import log_provider_failure
 
 log = structlog.get_logger(__name__)
@@ -85,16 +86,32 @@ async def run_structured[T: BaseModel](
 ) -> StructuredResult[T]:
     # Feedback carried to the next model after a truncated answer.
     carry: list[BaseMessage] = []
-    for index in range(start_index, len(models)):
+    tried: set[int] = set()
+    index = start_index
+    while index < len(models):
+        tried.add(index)
         runnable = models[index].with_structured_output(
             schema, method="json_schema", include_raw=True
         )
         base = [*messages, *carry]
         msgs = base
+        switched = False
         for attempt in range(1, max_attempts_per_model + 1):
             try:
                 out: dict[str, Any] = await runnable.ainvoke(msgs)  # type: ignore[assignment]
             except (anthropic.APIError, ModelError) as exc:
+                other = 1 - index
+                if isinstance(exc, RETRYABLE_ERRORS) and len(models) == 2 and other not in tried:
+                    log.warning(
+                        "structured_fallback",
+                        step=step,
+                        from_index=index,
+                        error_type=type(exc).__name__,
+                    )
+                    carry = []  # a provider error, not a validation one: no feedback
+                    index = other
+                    switched = True
+                    break
                 log_provider_failure("anthropic", exc)
                 raise ProviderError("anthropic") from exc
             parsed: T | None = out.get("parsed")
@@ -120,4 +137,6 @@ async def run_structured[T: BaseModel](
                 carry = [HumanMessage(content=_TRUNCATED_FEEDBACK)]
                 break
             msgs = [*base, *_feedback(out.get("raw"), errors)]
+        if not switched:
+            index = next((i for i in range(index + 1, len(models)) if i not in tried), len(models))
     raise StructuredOutputError

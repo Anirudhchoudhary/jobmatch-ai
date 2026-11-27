@@ -16,7 +16,6 @@ from uuid import UUID
 import anthropic
 import structlog
 from langchain_core.exceptions import ModelError
-from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langgraph.config import get_stream_writer
 from langgraph.graph import END, START, StateGraph
@@ -36,6 +35,7 @@ from app.graphs.citations import (
 from app.guardrails.base import GuardContext, GuardrailOutcome
 from app.guardrails.factory import Guardrails
 from app.guardrails.groundedness import split_claims
+from app.llm.chat import ChatRunnable
 from app.llm.errors import log_provider_failure
 from app.llm.prompts import Prompt
 from app.retrieval.search import RetrievedChunk
@@ -108,7 +108,7 @@ def build_messages(
 
 def build_chat_graph(
     retriever: Retriever,
-    chat_model: BaseChatModel,
+    chat_model: ChatRunnable,
     prompt: Prompt,
     *,
     min_relevance: float,

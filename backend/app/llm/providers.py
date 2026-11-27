@@ -10,7 +10,7 @@ from langchain_core.language_models import BaseChatModel
 from app.analysis.analyst import Analyst, ClaudeAnalyst
 from app.analysis.heuristic import HeuristicAnalyst
 from app.core.settings import get_settings
-from app.llm.chat import make_chat_model
+from app.llm.chat import ChatRunnable, make_chat_model, with_fallback
 from app.llm.embeddings import BedrockTitanEmbedder, Embedder, HashEmbedder
 from app.llm.rerank import BedrockReranker, NoopReranker, Reranker
 
@@ -19,7 +19,7 @@ from app.llm.rerank import BedrockReranker, NoopReranker, Reranker
 class Providers:
     embedder: Embedder
     reranker: Reranker
-    chat_model: BaseChatModel
+    chat_model: ChatRunnable
     structured_models: tuple[BaseChatModel, BaseChatModel]
     analyst: Analyst
 
@@ -59,4 +59,11 @@ def get_providers() -> Providers:
         )
     else:
         analyst = HeuristicAnalyst()
-    return Providers(embedder, reranker, make_chat_model(s), structured, analyst)
+    chat_model: ChatRunnable
+    if s.llm_provider == "anthropic":
+        chat_model = with_fallback(
+            make_chat_model(s), make_chat_model(s, model=s.strong_chat_model)
+        )
+    else:
+        chat_model = make_chat_model(s)
+    return Providers(embedder, reranker, chat_model, structured, analyst)
