@@ -38,6 +38,7 @@ from app.guardrails.groundedness import split_claims
 from app.llm.chat import ChatRunnable
 from app.llm.errors import log_provider_failure
 from app.llm.prompts import Prompt
+from app.observability.tracing import trace_config
 from app.retrieval.search import RetrievedChunk
 from app.retrieval.service import Retriever
 from app.schemas.chat import ChatDone, ChatProgress, TokenEvent, Verdict
@@ -229,7 +230,15 @@ async def chat_events(
     """Map graph stream parts to SSE events: ``progress``, ``token``, ``verdict``, ``done``."""
     start = time.perf_counter()
     final: ChatState = state
-    async for mode, raw in graph.astream(state, stream_mode=["custom", "values"]):
+    async for mode, raw in graph.astream(
+        state,
+        config=trace_config(
+            name="chat",
+            user_id=state["user_id"],
+            tags=["chat", f"prompt:chat_system:{prompt_version}"],
+        ),
+        stream_mode=["custom", "values"],
+    ):
         if mode == "values":
             final = cast(ChatState, raw)
             continue

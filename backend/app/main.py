@@ -3,7 +3,7 @@
 import asyncio
 import os
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import Literal
 
 from fastapi import FastAPI
@@ -25,6 +25,7 @@ from app.core.request_id import RequestIdMiddleware
 from app.core.settings import get_settings
 from app.db.engine import get_engine
 from app.observability.request_log import DbRequestLogWriter, RequestLogMiddleware
+from app.observability.tracing import flush_tracing, init_tracing
 
 
 def _log_level() -> str:
@@ -53,7 +54,10 @@ def _env() -> str:
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     if _pii_engine() == "presidio":
         await asyncio.to_thread(warm_up)  # first use would otherwise load spaCy mid-request
+    with suppress(ValidationError):  # offline (no settings): tracing stays off
+        init_tracing(get_settings())
     yield
+    flush_tracing()
     # Dispose only an engine that was actually created; never create one just to dispose it.
     if get_engine.cache_info().currsize:
         await get_engine().dispose()

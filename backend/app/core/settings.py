@@ -104,6 +104,11 @@ class Settings(_Bootstrap):
     allowance_suggestions: int = 10
     burst_per_minute: int = 10
 
+    # Langfuse tracing (off unless both keys are set)
+    langfuse_public_key: SecretStr | None = None
+    langfuse_secret_key: SecretStr | None = None
+    langfuse_host: str = "https://cloud.langfuse.com"
+
     # Global backstop: refuse all requests once today's logged LLM cost reaches this (None = off)
     daily_spend_cap_usd: float | None = 1.0
 
@@ -118,6 +123,12 @@ class Settings(_Bootstrap):
                 "BEDROCK_GUARDRAIL_ID and a numbered BEDROCK_GUARDRAIL_VERSION "
                 "are required when GUARD_BEDROCK is on"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _langfuse_keys_together(self) -> "Settings":
+        if (self.langfuse_public_key is None) != (self.langfuse_secret_key is None):
+            raise ValueError("LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY must be set together")
         return self
 
     @model_validator(mode="after")

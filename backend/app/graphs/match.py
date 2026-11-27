@@ -27,6 +27,7 @@ from app.core.request_id import request_id_var
 from app.graphs.citations import label_context
 from app.guardrails.pipeline import GuardrailRecorder, NullRecorder, record_hallucination_block
 from app.llm.structured import StructuredOutputError
+from app.observability.tracing import trace_config
 from app.retrieval.search import RetrievedChunk
 from app.schemas.match import (
     AnalysisProgress,
@@ -232,7 +233,11 @@ async def analysis_events(
     final = initial_state(user_id, docs)
     graph_start = time.perf_counter()
     async for mode, raw in build_match_graph(analyst).astream(
-        final, stream_mode=["custom", "values"]
+        final,
+        config=trace_config(
+            name="analysis", user_id=user_id, tags=["analysis", f"analyst:{analyst.name}"]
+        ),
+        stream_mode=["custom", "values"],
     ):
         if mode == "values":
             final = cast(MatchState, raw)

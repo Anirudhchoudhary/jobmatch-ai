@@ -23,6 +23,7 @@ from app.core.errors import AppError
 from app.core.request_id import request_id_var
 from app.graphs.citations import label_context
 from app.guardrails.pipeline import GuardrailRecorder, NullRecorder, record_hallucination_block
+from app.observability.tracing import trace_config
 from app.retrieval.search import RetrievedChunk
 from app.schemas.match import (
     BulletSuggestion,
@@ -172,7 +173,10 @@ async def suggest(
 
     skills = [SkillMatch.model_validate(s) for s in stored["skills"]]
     final = await build_suggest_graph(analyst, limit=limit).ainvoke(
-        initial_state(docs.resume, skills)
+        initial_state(docs.resume, skills),
+        config=trace_config(
+            name="suggestions", user_id=user_id, tags=["suggestions", f"analyst:{analyst.name}"]
+        ),
     )
     if final["rejected"] > 0:
         await record_hallucination_block(
