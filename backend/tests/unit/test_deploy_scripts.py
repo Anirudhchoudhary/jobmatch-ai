@@ -211,6 +211,8 @@ def test_deploy_configures_functions_url_and_permissions(
         "UPLOADS_BUCKET": BUCKET,
         "EMAIL_SENDER": "resend",
         "PII_ENGINE": "presidio",
+        "MIN_RELEVANCE": "0",
+        "DB_CONNECT_TIMEOUT_S": "10",
     }
     api_env = json.loads(flag(creates["jobmatch-api"], "--environment"))["Variables"]
     cleanup_env = json.loads(flag(creates["jobmatch-cleanup"], "--environment"))["Variables"]
