@@ -104,7 +104,8 @@ def create_app() -> FastAPI:
     )
     # add_middleware stacks last-added outermost: the request id must be bound first.
     # Order, outermost first: request id, request log, origin check, JSON-only. The check sits
-    # inside the request id (so the 403 carries one) and the request log (so rejects are logged).
+    # inside the request id (so the 403 carries one) and the request log (so rejects get a log
+    # line, but no request_log row).
     app.add_middleware(JsonOnlyMiddleware)
     app.add_middleware(OriginVerifyMiddleware, token=_origin_verify_token())
     app.add_middleware(RequestLogMiddleware, writer=DbRequestLogWriter())

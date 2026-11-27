@@ -18,6 +18,9 @@ log = structlog.get_logger(__name__)
 
 HEADER = b"x-origin-verify"
 _PROTECTED_PREFIX = "/api/"
+# Set on the ASGI scope of a rejected request; the request log skips its DB row (anyone can
+# send these straight to the Function URL, so storing them would let strangers fill the table).
+REJECTED_SCOPE_KEY = "jobmatch.origin_rejected"
 
 
 def origin_verified(headers: list[tuple[bytes, bytes]], token: str) -> bool:
@@ -42,5 +45,6 @@ class OriginVerifyMiddleware:
             return
         rid = str(scope.get("state", {}).get("request_id") or request_id_var.get())
         log.warning("origin_verify_rejected", path=scope["path"], method=scope["method"])
+        scope[REJECTED_SCOPE_KEY] = True
         response = JSONResponse(error_body("forbidden", "Forbidden.", rid), status_code=403)
         await response(scope, receive, send)
