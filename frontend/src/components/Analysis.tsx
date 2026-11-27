@@ -126,13 +126,15 @@ export function Analysis({ docsVersion }: { docsVersion: number }) {
     setRunning(true);
     setError(null);
     setStep(null);
+    const startVersion = seenVersion.current;
     try {
       let fresh: MatchAnalysis | null = null;
       await streamSse("/api/stream/analyses", {}, (name, data) => {
         if (name === "progress") setStep((data as { step: string }).step);
         else if (name === "done") fresh = data as MatchAnalysis;
       });
-      if (fresh) {
+      // Documents replaced mid-run: this result is for the old ones, so keep the re-run offer.
+      if (fresh && seenVersion.current === startVersion) {
         setResult(fresh);
         setStale(false);
       }
@@ -212,8 +214,8 @@ export function Analysis({ docsVersion }: { docsVersion: number }) {
                     <p className="mt-2 text-sm text-muted">None.</p>
                   ) : (
                     <ul className="mt-2">
-                      {items.map((m) => (
-                        <SkillRow key={m.requirement.skill} match={m} />
+                      {items.map((m, i) => (
+                        <SkillRow key={`${i}-${m.requirement.skill}`} match={m} />
                       ))}
                     </ul>
                   )}

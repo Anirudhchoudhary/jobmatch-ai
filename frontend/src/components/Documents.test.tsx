@@ -133,4 +133,16 @@ describe("Documents", () => {
     await user.click(screen.getByRole("button", { name: /use this job description/i }));
     expect(await screen.findByText(/held back/i)).toBeInTheDocument();
   });
+
+  it("calls onReady again after a document is replaced", async () => {
+    documents = [doc("resume", "cv.pdf"), doc("jd", null)];
+    post = () => sse(prog("validating", "started"), ev("done", ready("jd")));
+    const onReady = vi.fn();
+    const user = userEvent.setup();
+    render(<Documents onReady={onReady} />);
+    await waitFor(() => expect(onReady).toHaveBeenCalledTimes(1));
+    await user.type(await screen.findByLabelText(/job description/i), "y".repeat(50));
+    await user.click(screen.getByRole("button", { name: /use this job description/i }));
+    await waitFor(() => expect(onReady).toHaveBeenCalledTimes(2));
+  });
 });

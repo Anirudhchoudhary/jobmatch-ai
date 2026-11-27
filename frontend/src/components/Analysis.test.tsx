@@ -158,4 +158,40 @@ describe("Analysis", () => {
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Daily limit reached."));
     expect(screen.getByRole("button", { name: /^run analysis$/i })).toBeEnabled();
   });
+
+  it("keeps a run that finishes after a document change stale", async () => {
+    let finish!: () => void;
+    post = () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(c) {
+            finish = () => {
+              c.enqueue(encoder.encode(ev("done", analysis({ score: 41, cached: false }))));
+              c.close();
+            };
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "text/event-stream" } },
+      );
+    const user = userEvent.setup();
+    const { rerender } = render(<Analysis docsVersion={1} />);
+    await user.click(await screen.findByRole("button", { name: /^run analysis$/i }));
+    await waitFor(() => expect(calledPost()).toBe(true));
+    rerender(<Analysis docsVersion={2} />);
+    finish();
+    await waitFor(() => expect(screen.getByRole("button", { name: /^run analysis$/i })).toBeEnabled());
+    expect(screen.queryByText("41")).not.toBeInTheDocument();
+    expect(screen.getByText(/documents changed/i)).toBeInTheDocument();
+  });
+
+  it("highlights quotes containing regex characters", async () => {
+    const a = analysis();
+    a.skills[0].evidence = [{ chunk_id: "c1", quote: "built apis (in python)?" }];
+    latest = () => json(200, a);
+    const user = userEvent.setup();
+    render(<Analysis docsVersion={1} />);
+    await user.click(await screen.findByRole("button", { name: /built apis \(in python\)\?/i }));
+    await screen.findByText(/at acme i/i);
+    expect(document.querySelector("mark")).toBeNull();
+  });
 });

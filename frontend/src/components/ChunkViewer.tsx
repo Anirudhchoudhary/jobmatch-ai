@@ -7,9 +7,10 @@ import type { ChunkText } from "@/lib/types";
 
 /** Split `text` around the first case-insensitive occurrence of `quote`; null when absent. */
 function splitAtQuote(text: string, quote: string): [string, string, string] | null {
-  const at = quote ? text.toLowerCase().indexOf(quote.toLowerCase()) : -1;
-  if (at === -1) return null;
-  return [text.slice(0, at), text.slice(at, at + quote.length), text.slice(at + quote.length)];
+  if (!quote) return null;
+  const m = new RegExp(quote.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i").exec(text);
+  if (!m) return null;
+  return [text.slice(0, m.index), m[0], text.slice(m.index + m[0].length)];
 }
 
 /** Fetches one chunk and shows it with the evidence quote highlighted (or quoted above it). */
@@ -37,12 +38,10 @@ export function ChunkViewer({ chunkId, quote }: { chunkId: string; quote: string
         {chunk.doc_type === "resume" ? "Resume" : "Job description"} · {chunk.section}
       </p>
       {parts ? null : (
-        <>
-          <p className="mb-2">
-            <span className="text-muted">Quote not found in this section: </span>
-            <q>{quote}</q>
-          </p>
-        </>
+        <p className="mb-2">
+          <span className="text-muted">Quote not found in this section: </span>
+          <q>{quote}</q>
+        </p>
       )}
       <p className="whitespace-pre-wrap">
         {parts ? (
