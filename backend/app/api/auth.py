@@ -14,6 +14,7 @@ from app.auth import service
 from app.auth import session as session_token
 from app.auth.email import EmailSender, get_email_sender
 from app.core.errors import AppError
+from app.core.origin_verify import origin_verified
 from app.core.settings import Settings, get_settings
 
 router = APIRouter(prefix="/api/auth")
@@ -46,16 +47,38 @@ def _request_context_ip(request: Request) -> str | None:
         return None
 
 
+def _viewer_address_ip(request: Request, settings: Settings) -> str | None:
+    """IP part of CloudFront's `CloudFront-Viewer-Address` (`ip:port`, IPv6 without brackets).
+
+    Trusted only when the request proved it came through CloudFront (origin token matches);
+    otherwise the header is client-controlled.
+    """
+    token = settings.origin_verify_token
+    if token is None or not origin_verified(
+        list(request.scope["headers"]), token.get_secret_value()
+    ):
+        return None
+    raw = request.headers.get("cloudfront-viewer-address", "").strip()
+    host = raw.rpartition(":")[0].removeprefix("[").removesuffix("]")  # port is after last colon
+    try:
+        return str(ipaddress.ip_address(host))
+    except ValueError:  # malformed or missing: fall back, never a 500
+        return None
+
+
 def client_ip(request: Request, settings: Settings) -> str:
     """Caller address for rate limiting.
 
-    Outside local, the source IP Lambda recorded for the Function URL request is used. Failing
+    Outside local, behind a verified CloudFront request the viewer address is used. Otherwise
+    the source IP Lambda recorded for the Function URL request is used. Failing
     that, the leftmost X-Forwarded-For entry is client-controlled, so the entry that the last
     `trusted_proxy_hops` proxies appended is used (rightmost by default). Without either (or in
     local) it is the socket peer; if even that is missing, all such callers share the single
     "unknown" bucket, which fails closed against the per-IP limit.
     """
     if settings.env != "local":
+        if viewer_ip := _viewer_address_ip(request, settings):
+            return viewer_ip
         if source_ip := _request_context_ip(request):
             return source_ip
         entries = [e.strip() for e in request.headers.get("x-forwarded-for", "").split(",")]

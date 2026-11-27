@@ -197,3 +197,27 @@ async def test_writer_failure_never_breaks_response() -> None:
     assert resp.status_code == 200
     failed = [entry for entry in logs if entry["event"] == "request_log_write_failed"]
     assert failed and failed[0]["error_type"] == "RuntimeError"
+
+
+async def test_origin_verify_rejects_are_logged_but_not_written() -> None:
+    from structlog.testing import capture_logs
+
+    from app.core.origin_verify import OriginVerifyMiddleware
+
+    token = "t" * 40
+    w = ListWriter()
+    app = Starlette(routes=[Route("/api/ok", ok)])
+    # Same order as create_app: request id, request log, origin check (outermost first).
+    app.add_middleware(OriginVerifyMiddleware, token=token)
+    app.add_middleware(RequestLogMiddleware, writer=w)
+    app.add_middleware(RequestIdMiddleware)
+    with capture_logs() as logs:
+        async with _client(app) as c:
+            assert (await c.get("/api/ok")).status_code == 403
+            assert w.entries == []
+            assert (await c.get("/api/ok", headers={"X-Origin-Verify": token})).status_code == 200
+    (e,) = w.entries
+    assert e.status == 200
+    completed = [entry for entry in logs if entry["event"] == "request_completed"]
+    assert [entry["status"] for entry in completed] == [403, 200]
+    assert any(entry["event"] == "origin_verify_rejected" for entry in logs)

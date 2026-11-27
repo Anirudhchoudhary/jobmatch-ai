@@ -1,4 +1,6 @@
-"""Per-request log: one ``request_log`` row per /api request, written by pure-ASGI middleware."""
+"""Per-request log: one ``request_log`` row per /api request, written by pure-ASGI middleware.
+
+Requests refused by the origin check get the structured log line but no row."""
 
 import time
 import uuid
@@ -12,6 +14,7 @@ import structlog
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from app.core.origin_verify import REJECTED_SCOPE_KEY
 from app.core.request_id import request_id_var
 from app.db.engine import get_sessionmaker
 from app.db.models import RequestLog
@@ -145,5 +148,6 @@ class RequestLogMiddleware:
                     cache_hit=entry.cache_hit,
                     model_count=len(entry.models),
                 )
-                with anyio.CancelScope(shield=True):
-                    await self.writer.write(entry)
+                if not scope.get(REJECTED_SCOPE_KEY):
+                    with anyio.CancelScope(shield=True):
+                        await self.writer.write(entry)

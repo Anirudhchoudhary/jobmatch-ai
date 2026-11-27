@@ -1,0 +1,10 @@
+{
+  "CORSRules": [
+    {
+      "AllowedOrigins": ["https://__DOMAIN__"],
+      "AllowedMethods": ["PUT"],
+      "AllowedHeaders": ["content-type", "x-amz-server-side-encryption"],
+      "MaxAgeSeconds": 3000
+    }
+  ]
+}

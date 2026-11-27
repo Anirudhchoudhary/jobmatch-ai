@@ -1,6 +1,6 @@
 # JobMatch AI
 
-JobMatch AI is a backend that matches resumes to jobs using LLMs and pgvector similarity search. This repository currently contains Phases 1 to 7: a FastAPI app with structured, PII-redacted logging, a Postgres + pgvector database, migrations and a health endpoint (Phase 1), plus resume/JD ingestion, hybrid retrieval with reranking and streamed, cited chat (Phase 2), plus grounded match analysis and resume bullet suggestions (Phase 3), plus guardrails around uploads, chat and model output (Phase 4), plus request logging, cost tracking, a spend cap, a semantic cache and optional tracing (Phase 5), plus an eval suite with a golden dataset and a CI gate (Phase 6), plus email one-time-code sign-in and an AWS CLI deploy to Lambda (Phase 7).
+JobMatch AI is a backend that matches resumes to jobs using LLMs and pgvector similarity search. This repository currently contains Phases 1 to 8: a FastAPI app with structured, PII-redacted logging, a Postgres + pgvector database, migrations and a health endpoint (Phase 1), plus resume/JD ingestion, hybrid retrieval with reranking and streamed, cited chat (Phase 2), plus grounded match analysis and resume bullet suggestions (Phase 3), plus guardrails around uploads, chat and model output (Phase 4), plus request logging, cost tracking, a spend cap, a semantic cache and optional tracing (Phase 5), plus an eval suite with a golden dataset and a CI gate (Phase 6), plus email one-time-code sign-in and an AWS CLI deploy to Lambda (Phase 7), plus a Next.js web frontend served through CloudFront at jobmatch.ntrye.com (Phase 8).
 
 ## Prerequisites
 
@@ -123,12 +123,18 @@ curl -s -X POST localhost:8000/api/suggestions -H 'Content-Type: application/jso
   -d '{"analysis_id":"<analysis_id from the done event>"}'
 ```
 
+`POST /api/stream/suggestions` (same body, same daily allowance and spend cap) streams the same run: `progress` events (`loading`, `selecting`, `rewriting`, `validating`), then one `done` event carrying the `BulletSuggestions`. The site uses it; `POST /api/suggestions` stays for compatibility.
+
+```sh
+curl -N -X POST localhost:8000/api/stream/suggestions -H 'Content-Type: application/json' -d '{}'
+```
+
 Suggestions return `BulletSuggestions`: `analysis_id`, `suggestions` (each with `original_chunk_id`, `original`, `rewritten`, `rationale` and `target_skills`), `rejected_count`, `analyst` and `request_id`. At most 5 are returned.
 
 Errors come in two shapes:
 
 - `POST /api/suggestions` returns the usual JSON envelope `{"error": {"code", "message", "request_id"}}` with the HTTP status below.
-- `POST /api/stream/analyses` has already answered HTTP 200 and sent `progress` events when a failure happens, so it ends the stream with one `event: error` whose data is `{"code", "message", "request_id"}` (no `done` event follows).
+- `POST /api/stream/analyses` and `POST /api/stream/suggestions` have already answered HTTP 200 and sent `progress` events when a failure happens, so they end the stream with one `event: error` whose data is `{"code", "message", "request_id"}` (no `done` event follows).
 
 Codes: `documents_required` (409, no resume or job description yet), `no_requirements` (422, nothing extractable from the job description), `analysis_required` (409, run an analysis before asking for suggestions), `analysis_not_found` (404), `model_output_invalid` (502) and `provider_unavailable` (503). In the stream the number is not sent; only the code is.
 
@@ -435,11 +441,80 @@ The cleanup function deletes documents (with chunks and analyses), semantic-cach
 
 ### Known limits
 
-- There is no frontend yet, so the Function URL is the public endpoint and there is no CloudFront or custom domain.
+- Phase 7 alone has no frontend: the Function URL is the public endpoint. Phase 8 adds CloudFront and a custom domain in front of it.
 - Sessions are stateless signed cookies: logout clears the cookie but does not revoke a stolen one, which stays valid for up to 7 days.
 - Reserved concurrency may be refused on new accounts (low account limit). Deploy then warns and continues without a cap, and the Budgets alerts are the only cost backstop.
-- The per-IP limit prefers the Function URL request context's source IP. Only when that is missing does it fall back to `X-Forwarded-For` with `TRUSTED_PROXY_HOPS=1`, which assumes the Function URL is the only proxy in front of the app. Adding CloudFront or another proxy changes the source IP Lambda sees (it becomes the proxy's), so per-IP limits would then need the proxy's forwarded header.
-- The S3 uploads bucket has no CORS configuration, so a browser cannot `PUT` to a presigned upload URL yet (curl and other non-browser clients can). The frontend phase adds it.
+- The per-IP limit prefers the Function URL request context's source IP. Only when that is missing does it fall back to `X-Forwarded-For` with `TRUSTED_PROXY_HOPS=1`, which assumes the Function URL is the only proxy in front of the app. Behind CloudFront (Phase 8) the per-IP limits use `CloudFront-Viewer-Address` instead, trusted only on requests carrying the origin token.
+- The S3 uploads bucket gets a CORS rule for the site origin (`PUT` only) in Phase 8, so browser uploads to presigned URLs work.
 - Re-running deploy does not change an existing budget's alert email: budgets are only created when missing. To change `BUDGET_EMAIL`, edit the budget's subscriber in the AWS console (or delete the budget and redeploy).
 - The Bedrock guardrail is not created, so the Bedrock rows in the eval comparison stay empty.
 - The spec's events/analytics table (§2) is deferred.
+
+## Phase 8: web frontend
+
+A Next.js static site in `frontend/` (static export, Tailwind) is served at https://jobmatch.ntrye.com from S3 through CloudFront, which also forwards `/api/*` to the Lambda Function URL.
+
+### What the site does
+
+1. **Sign in:** enter an email, then the 6-digit code that was emailed.
+2. **Documents:** upload a resume (PDF) and paste a job description (text), or load the built-in samples. Ingestion progress streams in, and a reload restores your documents.
+3. **Analysis:** the match score with its breakdown and cited evidence, and resume bullet suggestions (streamed progress, then the rewrites).
+4. **Chat:** streamed answers with clickable citations that open the cited chunk, and a "Show guardrails" panel listing the verdict and every check that ran, with the ones that fired highlighted.
+
+### Run it locally
+
+```sh
+make up migrate
+docker compose up -d --build --wait api   # the API healthcheck fails until migrated
+make fe-install
+make fe-dev                               # http://localhost:3000, /api/* proxied to :8000
+```
+
+Locally the sign-in code is not emailed: find `login_code_console` in `make logs` and enter that code.
+
+### Tests
+
+```sh
+make fe-test    # eslint, tsc and the Vitest unit tests
+make fe-e2e     # Playwright: sign in, sample, analysis, chat, guardrails, reload, sign out
+```
+
+`make fe-e2e` needs the offline API running as above, starts `next dev` itself and reads the sign-in code from the API container log. CI runs the unit tests, the static build and the end-to-end flow (`.github/workflows/`).
+
+### Deploy
+
+```bash
+make migrate-prod                          # Phase 8 adds migration 0009: run it before the new API
+BUDGET_EMAIL=you@example.com make deploy   # now also creates the token, certificate, distribution and DNS
+make deploy-frontend                       # build, sync to S3, invalidate CloudFront
+make smoke-prod                            # health, site 200, /api/auth/me 401, Function URL /api 403
+```
+
+`make deploy` must come first: `make deploy-frontend` refuses to run until the distribution is recorded in `var/deploy/state.json`. The site is then at https://jobmatch.ntrye.com. The first `make deploy` waits for ACM to validate the certificate over DNS (up to 20 minutes) and for the distribution to deploy.
+
+### How CloudFront routes requests
+
+- `/*` goes to the private site bucket through origin access control. A CloudFront Function (`infra/aws/index-rewrite.js`) maps `/app/` to `/app/index.html`, because the S3 REST origin has no directory indexes.
+- `/api/*` goes to the Function URL with caching off. CloudFront adds a secret `X-Origin-Verify` header (the `ORIGIN_VERIFY_TOKEN` that deploy generates into `jobmatch/prod`), and the API answers 403 to any `/api/*` request without it. Once the token exists, calling the Function URL directly on `/api/*` therefore returns 403; `/health` and `/livez` stay open. Without a token configured the check is off.
+- The origin request policy forwards everything except `Host`, plus CloudFront's viewer headers. The per-IP limits read the viewer address from `CloudFront-Viewer-Address`, trusted only on requests that carry the origin token.
+- The upload bucket accepts browser `PUT`s from `https://jobmatch.ntrye.com` only (`infra/aws/policies/s3-cors.json`).
+
+### DNS
+
+The Route 53 hosted zone for `ntrye.com` is managed by hand. The scripts look it up by name and only add or remove the `jobmatch.ntrye.com` alias records and the ACM validation records; every other record in the zone is left alone, and the zone is never created or deleted.
+
+### Teardown
+
+`make teardown` now starts with the edge, in this order: the `jobmatch.ntrye.com` alias records, the distribution, the CloudFront Function, the origin access control, the certificate's DNS validation record and then the certificate. The site bucket is emptied and deleted with the uploads bucket, and the rest runs as in Phase 7. CloudFront must be disabled and fully deployed before it can be deleted, which can take 15 minutes or more.
+
+### Cost
+
+The Route 53 hosted zone is $0.50 per month. CloudFront, S3, ACM and the CloudFront Function stay in the free tier at demo traffic.
+
+### Known limits
+
+- CloudFront cuts a response when the origin sends nothing for more than 60 s (the default quota). The SSE endpoints (documents, samples, analysis, suggestions, chat) send a `: keep-alive` comment after 15 s without an event (`SSE_KEEPALIVE_S`), so a slow model call keeps the connection open. The JSON `POST /api/suggestions` is not streamed and still fails with a 504 if it takes longer than 60 s; the site uses `POST /api/stream/suggestions`.
+- Sessions are stateless, as in Phase 7: logout does not revoke a stolen cookie.
+- DNS for `ntrye.com` moved from GoDaddy to Route 53, so the GoDaddy DNS panel is inactive; edit records in Route 53.
+- The first visit after idle time pays a Lambda cold start (several seconds) on the first API call.
+- Reserved concurrency 5 caps the whole site: heavy concurrent use sees throttling.

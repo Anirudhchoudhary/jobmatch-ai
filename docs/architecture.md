@@ -4,9 +4,9 @@ About a 20-minute read. Part 1 is the high-level design, Part 2 the low-level de
 Part 3 the decisions we weighed and why we picked what we did. Things that are designed
 but **not built yet** are marked *(planned)*.
 
-Status at the time of writing: Phases 1 to 7 are built (backend,
+Status at the time of writing: Phases 1 to 8 are built (backend,
 ingestion, RAG chat, match analysis, suggestions, guardrails, observability, cost
-controls, evals, email sign-in, AWS CLI deploy). Phase 8 (Next.js frontend) is planned.
+controls, evals, email sign-in, AWS CLI deploy, Next.js frontend behind CloudFront).
 
 ---
 
@@ -40,8 +40,9 @@ requirements, not extras.
 
 ```mermaid
 flowchart LR
-  U[Candidate in browser] -->|HTTPS| FE[Next.js static site<br/>S3 + CloudFront <i>(planned)</i>]
-  FE -->|REST + SSE| API[FastAPI on Lambda<br/>Function URL]
+  U[Candidate in browser] -->|HTTPS| CF[CloudFront<br/>jobmatch.ntrye.com]
+  CF -->|"/*"| FE[Next.js static site<br/>private S3 bucket]
+  CF -->|"/api/* + X-Origin-Verify"| API[FastAPI on Lambda<br/>Function URL]
   API --> PG[(Postgres + pgvector)]
   API --> ANT[Anthropic API<br/>Haiku 5.5 / Sonnet 5.5]
   API --> BR[Amazon Bedrock<br/>Titan embed, Rerank, Guardrails]
@@ -98,12 +99,18 @@ flowchart TB
   per route; optional Langfuse traces with PII masking.
 - **Quality:** a 33-case golden dataset with adversarial cases and a threshold gate in CI.
 
-### 1.7 Deployment view *(built, Phase 7)*
+### 1.7 Deployment view *(built, Phases 7 and 8)*
 
 - **Compute:** one container image on Lambda (Lambda Web Adapter keeps FastAPI unchanged),
   behind a single public Function URL with response streaming for SSE. There is no API
-  Gateway or CloudFront because there is no frontend yet. Readiness uses `/livez`, which
+  Gateway: CloudFront is the front door (see Edge). Readiness uses `/livez`, which
   never touches the database, so a cold start does not fail on a sleeping Neon instance.
+- **Edge (Phase 8):** CloudFront serves `https://jobmatch.ntrye.com` with an ACM certificate
+  (us-east-1) and a Route 53 alias. The default behaviour reads the static export from a
+  private S3 bucket through origin access control; a CloudFront Function rewrites `/app/` to
+  `/app/index.html`. `/api/*` has caching off and goes to the Function URL, with a secret
+  `X-Origin-Verify` header added (see 2.12). The Route 53 zone is the author's, edited by hand;
+  the scripts touch only the `jobmatch` alias and the certificate validation records.
 - **Data:** Neon Postgres with pgvector (free tier); uploads go to a private S3 bucket
   (objects expire after 3 days).
 - **Secrets:** `make secrets-set` writes `jobmatch/prod` by prompt, so values never reach
@@ -112,7 +119,9 @@ flowchart TB
   on new accounts); a second Lambda (same image, `CLEANUP_MODE`) run hourly by EventBridge
   Scheduler deletes documents, cache rows, login codes and usage counters older than 72
   hours; CloudWatch log retention 14 days.
-- **Provisioning:** AWS CLI scripts in `infra/aws/` (see 3.11), not Terraform.
+- **Provisioning:** AWS CLI scripts in `infra/aws/` (see 3.11), not Terraform. `make deploy`
+  builds the infrastructure, `make deploy-frontend` builds `frontend/` and syncs it to S3
+  (hashed assets cached a year, everything else revalidated) and invalidates CloudFront.
 - **CI:** the GitHub OIDC role for evals is still not created.
 
 ---
@@ -241,7 +250,9 @@ and logged as hallucination blocks.
   configurable as `off`, `monitor` or `enforce`.
 - **Every firing** writes a `guardrail_events` row and appears in the response.
 - **Self-built guards:** regex injection rules, a Haiku injection classifier, a Haiku topic
-  classifier, PII (regex plus Presidio for addresses), per-claim groundedness.
+  classifier, PII (regex plus Presidio for addresses), per-claim groundedness. A claim that cites sources is judged against those; an uncited
+  claim is judged against all retrieved context, so a correct but uncited sentence is not
+  flagged merely for lacking a label.
 - **Bedrock provider:** `ApplyGuardrail` with a numbered version (never DRAFT), tracing off.
   Planned to run in `monitor` mode so both verdicts can be shown side by side.
 - **Allowances:** per user per UTC day, 5 analyses, 10 uploads, 30 chats and 10
@@ -272,7 +283,30 @@ hop). Email goes through Resend when deployed and through a console sender local
 code lands in the API log; refused when `ENV=prod`). `get_current_user_id` reads the
 cookie in deployed environments and keeps the fixed dev user only in `local`/`ci`.
 
-### 2.11 Evaluation harness (Phase 6)
+### 2.11 Web frontend *(built, Phase 8)*
+
+`frontend/` is a Next.js static export (`output: "export"`, React, Tailwind). `/` is the
+sign-in screen and `/app/` the signed-in app: documents (upload through the presigned
+ticket, paste text, or load samples), analysis and suggestions, and chat with clickable
+citations and a "Show guardrails" panel. SSE endpoints are POSTs, so `lib/sse.ts` reads
+`fetch` streams rather than `EventSource`. Session restore uses read-only endpoints that
+spend no allowance: `GET /api/documents`, `/api/analyses/latest`, `/api/suggestions/latest`
+and `/api/chunks/{id}` (citation text), all in `api/session_state.py`. No document text or
+email goes into browser storage. Rewrites are not allowed in a static export, so `next dev`
+proxies `/api/*` to `localhost:8000` and CloudFront does the same in production. Tests:
+Vitest unit tests (`make fe-test`) and a Playwright flow against the offline API
+(`make fe-e2e`), both in CI.
+
+### 2.12 Origin verification *(built, Phase 8)*
+
+The Function URL stays public, so anyone could call it and skip the distribution. `deploy.sh`
+generates `ORIGIN_VERIFY_TOKEN` into the `jobmatch/prod` secret; CloudFront sends it as
+`X-Origin-Verify` on `/api/*`, and a pure-ASGI middleware (`core/origin_verify.py`) answers 403
+to any `/api/*` request without a matching token (constant-time compare). `/health` and
+`/livez` are exempt, and with no token configured the check is off so local runs and Phase 7
+deployments work unchanged.
+
+### 2.13 Evaluation harness (Phase 6)
 
 - **Dataset:** 33 synthetic cases across 11 categories (strong, partial and poor match,
   career changer, missing information, injection in resume, in JD and in chat, off-topic
@@ -398,8 +432,14 @@ change our mind later.
   it creates it. `teardown.sh` deletes from the state file, sweeps the names in `config.sh`,
   then checks by name and by `Project` tag, and exits 1 if anything remains. The cost is no
   drift detection or plan step.
-- **Function URL, not CloudFront + API Gateway:** with no frontend there is nothing to
-  put at the edge. Revisit in Phase 8.
+- **CloudFront in front of the Function URL, not API Gateway (Phase 8):** CloudFront is
+  needed anyway for the static site and the custom domain, and it also gives one origin for
+  site and API (no CORS). API Gateway adds cost and a 29 s integration limit that hurts SSE.
+- **Origin token header, not OAC for the Function URL:** OAC signs requests with SigV4 and
+  Lambda then needs the payload hash, which CloudFront cannot compute for streamed POST
+  bodies (the client would have to send `x-amz-content-sha256` itself). A shared secret
+  header needs nothing from the browser. Trade-off: it is a bearer secret, rotated by
+  editing the secret and redeploying.
 - **Trade-offs:** cold starts (Presidio and spaCy loading) and Lambda's request limits.
 
 ### 3.12 Evals: own dataset and gate, DeepEval for judge metrics
@@ -417,15 +457,22 @@ change our mind later.
 
 - **Sessions are stateless:** logout clears the cookie but cannot revoke a stolen one
   before its 7 days end.
-- **Public Function URL, no edge:** no CloudFront, WAF or custom domain. Reserved
-  concurrency may be refused on new accounts, leaving Budgets alerts as the only AWS cost
-  backstop. `trusted_proxy_hops=1` must be raised if another proxy is added.
+- **No WAF:** CloudFront and the origin check keep casual direct calls out, but nothing
+  filters abusive traffic at the edge. Reserved concurrency may be refused on new accounts,
+  leaving Budgets alerts as the only AWS cost backstop. Per-IP limits use
+  `CloudFront-Viewer-Address`, trusted only on requests that carry the origin token (without
+  it Lambda would see CloudFront's address, not the viewer's).
+- **60 s origin idle limit:** CloudFront cuts a response when the origin is silent that long.
+  `sse_stream` sends a `: keep-alive` SSE comment whenever no event has gone out for 15 s
+  (`SSE_KEEPALIVE_S`), so long structured model calls inside analysis or suggestions do not
+  trip it; the browser's SSE reader ignores comment-only blocks.
+- **First visit is slow:** a Lambda cold start (Presidio, spaCy) hits the first API call.
 - **Bedrock guardrail not created**, so its eval rows stay empty; the spec's events/analytics
   table is deferred.
 - **No live eval numbers yet:** they need an Anthropic key in the secret and a paid run
   (estimated $0.10 to $0.50 per full run, to be measured). The CI OIDC role is not created.
 - **Still open:** re-check Bedrock prices; flush Langfuse per request on Lambda.
-- **Phase 8:** Next.js frontend with the "Show guardrails" panel, README diagrams, demo GIF.
+- **Next:** README diagrams and a demo GIF.
 
 ## Glossary
 

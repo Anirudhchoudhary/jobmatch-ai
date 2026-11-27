@@ -54,6 +54,9 @@ class Settings(_Bootstrap):
     suggest_max_bullets: int = 5
     llm_timeout_s: float = 30.0
     structured_timeout_s: float = 120.0
+    # SSE comment sent when a stream has been silent this long; CloudFront drops an origin
+    # response after 60 s without bytes.
+    sse_keepalive_s: float = 15.0
 
     # Bedrock
     embed_model_id: str = "amazon.titan-embed-text-v2:0"
@@ -136,6 +139,8 @@ class Settings(_Bootstrap):
     # Proxies in front of the app that append to X-Forwarded-For (Lambda Function URL = 1);
     # only used when the Lambda request context carries no source IP
     trusted_proxy_hops: int = Field(default=1, ge=1)
+    # Shared secret CloudFront sends as X-Origin-Verify; /api/* is refused without it (None = off)
+    origin_verify_token: SecretStr | None = None
 
     # Deployment: blob storage and the retention cleanup job
     blob_backend: Literal["local", "s3"] = "local"
@@ -193,6 +198,19 @@ class Settings(_Bootstrap):
                 raise ValueError("EMAIL_SENDER=console is not allowed when ENV=prod")
         if self.email_sender == "resend" and (self.resend_api_key is None or not self.email_from):
             raise ValueError("RESEND_API_KEY and EMAIL_FROM are required when EMAIL_SENDER=resend")
+        return self
+
+    @model_validator(mode="after")
+    def _origin_verify_token_strength(self) -> "Settings":
+        if self.origin_verify_token is not None:
+            length = len(self.origin_verify_token.get_secret_value())
+            if length == 0:
+                raise ValueError("ORIGIN_VERIFY_TOKEN must not be empty (unset it to disable)")
+            if self.env == "prod" and length < _MIN_PROD_KEY_LEN:
+                raise ValueError(
+                    f"ORIGIN_VERIFY_TOKEN must be at least {_MIN_PROD_KEY_LEN} characters "
+                    "when ENV=prod"
+                )
         return self
 
     @model_validator(mode="after")

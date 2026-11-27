@@ -17,12 +17,14 @@ from app.api.documents import router as documents_router
 from app.api.events import router as events_router
 from app.api.health import router as health_router
 from app.api.samples import router as samples_router
+from app.api.session_state import router as session_state_router
 from app.api.suggestions import router as suggestions_router
 from app.api.uploads import local_put_router
 from app.api.uploads import router as uploads_router
 from app.core.errors import install_error_handlers
 from app.core.json_only import JsonOnlyMiddleware
 from app.core.logging import configure_logging
+from app.core.origin_verify import OriginVerifyMiddleware
 from app.core.pii import warm_up
 from app.core.request_id import RequestIdMiddleware
 from app.core.settings import get_settings
@@ -80,6 +82,14 @@ def _cleanup_mode() -> bool:
         return False
 
 
+def _origin_verify_token() -> str | None:
+    try:
+        token = get_settings().origin_verify_token
+    except ValidationError:
+        return None
+    return token.get_secret_value() if token else None
+
+
 def create_app() -> FastAPI:
     # Runs at import time under uvicorn, after its dictConfig, so this override is intentional.
     configure_logging(_log_level(), pii_engine=_pii_engine())
@@ -93,7 +103,11 @@ def create_app() -> FastAPI:
         openapi_url="/openapi.json" if docs else None,
     )
     # add_middleware stacks last-added outermost: the request id must be bound first.
+    # Order, outermost first: request id, request log, origin check, JSON-only. The check sits
+    # inside the request id (so the 403 carries one) and the request log (so rejects get a log
+    # line, but no request_log row).
     app.add_middleware(JsonOnlyMiddleware)
+    app.add_middleware(OriginVerifyMiddleware, token=_origin_verify_token())
     app.add_middleware(RequestLogMiddleware, writer=DbRequestLogWriter())
     app.add_middleware(RequestIdMiddleware)
     install_error_handlers(app)
@@ -105,6 +119,7 @@ def create_app() -> FastAPI:
     app.include_router(samples_router)
     app.include_router(analyses_router)
     app.include_router(suggestions_router)
+    app.include_router(session_state_router)
     if _env() in ("local", "ci") and _blob_backend() == "local":
         app.include_router(local_put_router)
     if _cleanup_mode():  # private cleanup function only; never on the public one

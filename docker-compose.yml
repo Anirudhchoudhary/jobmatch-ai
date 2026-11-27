@@ -26,6 +26,10 @@ services:
     environment:
       # Dev-only, non-secret; overrides any DATABASE_URL from .env so the container reaches db.
       DATABASE_URL: postgresql+psycopg://jobmatch:jobmatch@db:5432/jobmatch
+      # Dev-only, non-secret placeholders so sign-in works offline (console email sender);
+      # override via .env or the shell. ENV=prod rejects short keys and the console sender.
+      SESSION_SIGNING_KEY: ${SESSION_SIGNING_KEY:-local-dev-session-signing-key-not-a-secret}
+      OTP_HMAC_KEY: ${OTP_HMAC_KEY:-local-dev-otp-hmac-key-not-a-secret}
     ports:
       - "127.0.0.1:8000:8000"
     healthcheck:

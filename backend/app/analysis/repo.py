@@ -8,12 +8,12 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError
-from app.db.models import Analysis, Chunk, Document
+from app.db.models import Analysis, Chunk, Document, SuggestionSet
 from app.retrieval.search import RetrievedChunk
 
 
@@ -132,3 +132,40 @@ async def latest_analysis(
         )
     ).one_or_none()
     return None if row is None else (row.id, row.result)
+
+
+async def save_suggestions(
+    session: AsyncSession, *, user_id: UUID, analysis_id: UUID, result: dict[str, Any]
+) -> None:
+    """Upsert the suggestions for an analysis (``BulletSuggestions`` minus ``request_id``)."""
+    ins = insert(SuggestionSet).values(analysis_id=analysis_id, user_id=user_id, result=result)
+    await session.execute(
+        ins.on_conflict_do_update(
+            index_elements=["analysis_id"],
+            set_={"result": ins.excluded.result, "created_at": func.now()},
+        )
+    )
+    await session.commit()
+
+
+async def get_suggestions(
+    session: AsyncSession, user_id: UUID, analysis_id: UUID
+) -> dict[str, Any] | None:
+    return (
+        await session.execute(
+            select(SuggestionSet.result).where(
+                SuggestionSet.analysis_id == analysis_id, SuggestionSet.user_id == user_id
+            )
+        )
+    ).scalar_one_or_none()
+
+
+async def latest_for_active_documents(
+    session: AsyncSession, user_id: UUID
+) -> tuple[UUID, dict[str, Any]] | None:
+    """The newest analysis (any analyst) for the user's ready resume and JD, if both exist."""
+    resume_id = await _ready_doc_id(session, user_id, "resume")
+    jd_id = await _ready_doc_id(session, user_id, "jd")
+    if resume_id is None or jd_id is None:
+        return None
+    return await latest_analysis(session, user_id, resume_id, jd_id)

@@ -351,6 +351,7 @@ async def chat_events(
             prompt_version=prompt_version,
             request_id=request_id_var.get(),
             guardrails=[o for o in final["guard_outcomes"] if o.action != "allow"],
+            guardrail_checks=list(final["guard_outcomes"]),
             blocked=final["blocked_by"] is not None,
             cached=cached is not None,
         ),

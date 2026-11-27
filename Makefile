@@ -6,7 +6,7 @@ RUN2 = && $(UV) run
 DATABASE_URL ?= postgresql+psycopg://jobmatch:jobmatch@localhost:5432/jobmatch
 export DATABASE_URL
 
-.PHONY: install lint fmt typecheck test test-integration test-evals env up down migrate db-shell setup run logs samples retrieval-eval retrieval-eval-live report eval eval-baseline eval-live eval-live-baseline secrets-set migrate-prod deploy teardown smoke-prod
+.PHONY: install lint fmt typecheck test test-integration test-evals env up down migrate db-shell setup run logs samples retrieval-eval retrieval-eval-live report eval eval-baseline eval-live eval-live-baseline secrets-set migrate-prod deploy deploy-frontend teardown smoke-prod fe-install fe-dev fe-test fe-build fe-e2e
 
 install:
 	cd backend && $(UV) sync --locked
@@ -85,7 +85,8 @@ eval-live:
 eval-live-baseline:
 	cd backend && $(UV) run --group evals python -m scripts.run_evals --profile live --variant baseline --subset full --out ../var/evals/live-baseline --write-baseline ../evals/baseline.json --no-gate
 
-# ---- AWS deploy (us-west-2). Order: secrets-set -> migrate-prod -> deploy -> smoke-prod.
+# ---- AWS deploy (us-west-2; CloudFront/ACM/Route 53 in us-east-1).
+# Order: secrets-set -> migrate-prod -> deploy -> deploy-frontend -> smoke-prod.
 # BUDGET_EMAIL and secret values are never committed; state lives in git-ignored var/deploy/.
 PROD_SECRET_ID = jobmatch/prod
 DEPLOY_STATE = var/deploy/state.json
@@ -102,15 +103,34 @@ migrate-prod:
 deploy:
 	infra/aws/deploy.sh
 
+# Builds frontend/ (npm ci, npm run build) and syncs out/ to the site bucket, then invalidates
+# CloudFront. Refuses to run until make deploy has recorded the distribution.
+deploy-frontend:
+	infra/aws/deploy-frontend.sh
+
 # Deletes everything deploy created, and the secret after a typed confirmation.
 # TEARDOWN_ARGS=--keep-secret keeps the secret; TEARDOWN_ARGS=--yes skips the confirmation.
 teardown:
 	infra/aws/teardown.sh $(TEARDOWN_ARGS)
 
-# GET <Function URL>/health from the state file and require "status": "ok".
+# <Function URL>/health must report "status": "ok"; once the distribution exists, also
+# https://jobmatch.ntrye.com/ -> 200, its /api/auth/me -> 401 and the Function URL's -> 403.
 smoke-prod:
-	@url=$$(jq -r '.function_url // empty' $(DEPLOY_STATE) 2>/dev/null); \
-	test -n "$$url" || { echo "no Function URL in $(DEPLOY_STATE): run make deploy first" >&2; exit 1; }; \
-	curl -fsS --max-time 60 "$${url%/}/health" | jq -e '.status == "ok"' >/dev/null \
-	  && echo "smoke-prod ok: $${url%/}/health" \
-	  || { echo "smoke-prod failed: $${url%/}/health did not report status ok" >&2; exit 1; }
+	infra/aws/smoke-prod.sh
+
+fe-install:
+	cd frontend && npm ci
+
+fe-dev:
+	cd frontend && npm run dev
+
+fe-test:
+	cd frontend && npm run lint && npm run typecheck && npm test
+
+fe-build:
+	cd frontend && npm run build
+
+# Needs the offline API on :8000, in this order: `make up migrate`, then `docker compose up -d --build --wait api`.
+# (The API healthcheck fails until migrated.) Starts next dev itself.
+fe-e2e:
+	cd frontend && npx playwright test
