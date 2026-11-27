@@ -20,3 +20,7 @@ var/
 frontend/node_modules
 frontend/.next
 frontend/out
+
+# playwright
+frontend/test-results
+frontend/playwright-report

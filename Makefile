@@ -6,7 +6,7 @@ RUN2 = && $(UV) run
 DATABASE_URL ?= postgresql+psycopg://jobmatch:jobmatch@localhost:5432/jobmatch
 export DATABASE_URL
 
-.PHONY: install lint fmt typecheck test test-integration test-evals env up down migrate db-shell setup run logs samples retrieval-eval retrieval-eval-live report eval eval-baseline eval-live eval-live-baseline secrets-set migrate-prod deploy teardown smoke-prod fe-install fe-dev fe-test fe-build
+.PHONY: install lint fmt typecheck test test-integration test-evals env up down migrate db-shell setup run logs samples retrieval-eval retrieval-eval-live report eval eval-baseline eval-live eval-live-baseline secrets-set migrate-prod deploy teardown smoke-prod fe-install fe-dev fe-test fe-build fe-e2e
 
 install:
 	cd backend && $(UV) sync --locked
@@ -126,3 +126,7 @@ fe-test:
 
 fe-build:
 	cd frontend && npm run build
+
+# Needs `docker compose up -d --build --wait` + `make migrate` (offline API on :8000); starts next dev itself.
+fe-e2e:
+	cd frontend && npx playwright test
