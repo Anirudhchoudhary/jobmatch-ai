@@ -1,42 +1,21 @@
 """Structured logging with PII redaction.
 
-All log output passes through ``redact_pii`` before rendering. Phase 4 extends
-``redact_pii`` (addresses via Presidio) under the same name.
+All log output passes through ``redact_pii`` (shared engine in ``app.core.pii``)
+before rendering.
 """
 
 import logging
-import re
 import sys
-from typing import Any
-from urllib.parse import unquote
+from typing import Any, Literal
 
 import structlog
 from structlog.typing import EventDict, Processor
 
-_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}")
-# Optional +country, digits separated by whitespace, parentheses, dots or dashes.
-_PHONE_RE = re.compile(r"(?<![\w.])\+?\(?\d[\d\s().-]{7,}\d(?!\w)")
-_MIN_PHONE_DIGITS = 9
-_MAX_PHONE_DIGITS = 15
+from app.core.pii import redact_pii, set_pii_engine
+
+__all__ = ["configure_logging", "redact_pii", "redact_value"]
+
 _HANDLER_MARK = "_jobmatch_handler"
-
-
-def _phone_sub(match: re.Match[str]) -> str:
-    digits = sum(c.isdigit() for c in match.group(0))
-    if _MIN_PHONE_DIGITS <= digits <= _MAX_PHONE_DIGITS:
-        return "[PHONE]"
-    return match.group(0)
-
-
-def redact_pii(text: str) -> str:
-    """Replace emails and phone numbers in ``text`` with placeholders.
-
-    Percent-encoded text (e.g. URL query strings) is URL-decoded first so encoded
-    PII cannot bypass redaction; the returned text is then the decoded form.
-    """
-    if "%" in text:
-        text = unquote(text)
-    return _PHONE_RE.sub(_phone_sub, _EMAIL_RE.sub("[EMAIL]", text))
 
 
 def redact_value(value: object) -> object:
@@ -60,8 +39,14 @@ def _redact_processor(_logger: Any, _method: str, event_dict: EventDict) -> Even
     return {k: redact_value(v) for k, v in event_dict.items()}
 
 
-def configure_logging(level: str = "INFO", *, json: bool = True) -> None:
+def configure_logging(
+    level: str = "INFO",
+    *,
+    json: bool = True,
+    pii_engine: Literal["regex", "presidio"] = "regex",
+) -> None:
     """Route structlog and stdlib logging to stdout as redacted JSON. Idempotent."""
+    set_pii_engine(pii_engine)
     shared: list[Processor] = [
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_log_level,

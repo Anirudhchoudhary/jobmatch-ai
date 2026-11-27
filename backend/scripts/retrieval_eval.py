@@ -21,6 +21,8 @@ from app.api.samples import ingest_samples
 from app.core.settings import Settings, get_settings
 from app.db.engine import make_engine
 from app.db.models import User
+from app.guardrails.factory import build_guardrails
+from app.guardrails.pipeline import NullRecorder
 from app.ingestion.blobs import LocalBlobStore
 from app.llm.providers import Providers, get_providers
 from app.retrieval.search import RetrievedChunk
@@ -70,6 +72,7 @@ async def evaluate(
             blobs=LocalBlobStore(blobs_dir),
             embedder=providers.embedder,
             settings=settings,
+            guardrails=build_guardrails(settings, NullRecorder(), models=None, bedrock_client=None),
         ):
             if name == "error":  # pragma: no cover - ingest errors raise before this
                 raise RuntimeError("sample ingest failed")

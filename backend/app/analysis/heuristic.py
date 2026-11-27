@@ -28,7 +28,7 @@ _FILLER = re.compile(
 _BULLET_CHARS = "-*•"
 _MAX_SUGGESTIONS = 5
 _WORD = re.compile(r"[a-z0-9+#]+")
-_STOPWORDS = frozenset(
+STOPWORDS = frozenset(
     {
         "and", "the", "for", "with", "experience", "knowledge", "strong", "deep", "years",
         "familiarity", "skills", "skill", "ability", "plus", "such", "similar", "using", "other",
@@ -61,7 +61,7 @@ def _bullet_line(text: str) -> str | None:
 
 
 def _tokens(skill: str) -> list[str]:
-    return [w for w in _WORD.findall(skill.lower()) if len(w) >= 3 and w not in _STOPWORDS]
+    return [w for w in _WORD.findall(skill.lower()) if len(w) >= 3 and w not in STOPWORDS]
 
 
 def _has_phrase(phrase: str, line: str) -> bool:

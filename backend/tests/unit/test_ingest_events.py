@@ -7,6 +7,8 @@ from pydantic import ValidationError
 
 from app.core.errors import ProviderError
 from app.core.settings import Settings
+from app.guardrails.factory import build_guardrails
+from app.guardrails.pipeline import NullRecorder
 from app.ingestion.blobs import LocalBlobStore
 from app.ingestion.service import ingest_document
 from app.llm.embeddings import HashEmbedder
@@ -72,9 +74,12 @@ async def test_ingest_event_sequence(monkeypatch: pytest.MonkeyPatch, tmp_path: 
             blobs=LocalBlobStore(tmp_path),
             embedder=HashEmbedder(),
             settings=_settings(monkeypatch),
+            guardrails=build_guardrails(
+                _settings(monkeypatch), NullRecorder(), models=None, bedrock_client=None
+            ),
         )
     ]
-    steps = ["validating", "parsing", "chunking", "embedding", "storing"]
+    steps = ["validating", "parsing", "chunking", "scanning", "embedding", "storing"]
     expected = [(s, st) for s in steps for st in ("started", "done")]
     progress = [
         (e.step, e.status)
@@ -113,6 +118,9 @@ def _gen(monkeypatch: pytest.MonkeyPatch, tmp_path: Any, sm: Any, embedder: Any)
         blobs=LocalBlobStore(tmp_path),
         embedder=embedder,
         settings=_settings(monkeypatch),
+        guardrails=build_guardrails(
+            _settings(monkeypatch), NullRecorder(), models=None, bedrock_client=None
+        ),
     )
 
 

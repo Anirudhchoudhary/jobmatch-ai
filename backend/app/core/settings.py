@@ -14,6 +14,9 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 ENV_FILE = _REPO_ROOT / ".env"
 
 
+GuardMode = Literal["off", "monitor", "enforce"]
+
+
 class _Bootstrap(BaseSettings):
     """Reads only the fields needed to decide where the real settings come from."""
 
@@ -69,6 +72,40 @@ class Settings(_Bootstrap):
     max_pdf_pages: int = 10
     jd_min_chars: int = 50
     jd_max_chars: int = 20_000
+
+    # Guardrails
+    guard_injection_rules: GuardMode = "enforce"
+    guard_injection_classifier: GuardMode = "enforce"
+    guard_topic: GuardMode = "enforce"
+    guard_pii: GuardMode = "enforce"
+    guard_groundedness: GuardMode = "enforce"
+    guard_bedrock: GuardMode = "off"
+    bedrock_guardrail_id: str | None = None
+    bedrock_guardrail_version: str | None = None
+    guard_max_tokens: int = 2_000
+    guard_timeout_s: float = 20.0
+    groundedness_min_overlap: float = 0.5
+    pii_engine: Literal["regex", "presidio"] = "presidio"
+
+    # Allowances (per user per UTC day) and burst limit
+    allowance_analyses: int = 5
+    allowance_uploads: int = 10
+    allowance_chats: int = 30
+    allowance_suggestions: int = 10
+    burst_per_minute: int = 10
+
+    @model_validator(mode="after")
+    def _bedrock_guard_needs_numbered_version(self) -> "Settings":
+        if self.guard_bedrock != "off" and (
+            not self.bedrock_guardrail_id
+            or not self.bedrock_guardrail_version
+            or self.bedrock_guardrail_version.upper() == "DRAFT"
+        ):
+            raise ValueError(
+                "BEDROCK_GUARDRAIL_ID and a numbered BEDROCK_GUARDRAIL_VERSION "
+                "are required when GUARD_BEDROCK is on"
+            )
+        return self
 
     @model_validator(mode="after")
     def _require_anthropic_key(self) -> "Settings":

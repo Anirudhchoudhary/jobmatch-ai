@@ -3,9 +3,11 @@ from pathlib import Path
 
 import pytest
 
+from app.core import pii
 from app.core import settings as settings_module
 from app.core.settings import Settings, get_settings
 from app.db.engine import get_engine
+from app.guardrails.factory import get_guardrails
 from app.llm.providers import get_providers
 
 _ISOLATED_ENV_VARS = sorted({name.upper() for name in Settings.model_fields} | {"SECRET_ID"})
@@ -22,7 +24,23 @@ def _isolated_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Itera
     get_settings.cache_clear()
     get_engine.cache_clear()
     get_providers.cache_clear()
+    get_guardrails.cache_clear()
     yield
     get_settings.cache_clear()
     get_engine.cache_clear()
     get_providers.cache_clear()
+    get_guardrails.cache_clear()
+
+
+@pytest.fixture
+def presidio_engine() -> Iterator[None]:
+    """Opt a test into the Presidio engine; restore the process default afterwards."""
+    pii.set_pii_engine("presidio")
+    yield
+    pii.set_pii_engine("regex")
+
+
+@pytest.fixture(autouse=True)
+def _reset_pii_engine() -> Iterator[None]:
+    yield
+    pii.set_pii_engine("regex")

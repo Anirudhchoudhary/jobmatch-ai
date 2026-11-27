@@ -5,6 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, StringConstraints
 
+from app.guardrails.base import GuardrailOutcome, Mode
+
 
 class ChatRequest(BaseModel):
     question: Annotated[
@@ -21,11 +23,21 @@ class Citation(BaseModel):
 
 
 class ChatProgress(BaseModel):
-    step: Literal["retrieving", "reranking", "generating"]
+    step: Literal["checking_input", "retrieving", "reranking", "generating", "checking_answer"]
 
 
 class TokenEvent(BaseModel):
     text: str
+
+
+class Verdict(BaseModel):
+    """Result of the output guard, sent just before ``done``. ``grounded`` is False only
+    when an enforce-mode flag fired; monitor flags stay ``allow`` but appear in ``done``."""
+
+    grounded: bool
+    action: Literal["allow", "flag"]
+    unsupported_claims: list[str]
+    mode: Mode | None
 
 
 class ChatDone(BaseModel):
@@ -37,3 +49,5 @@ class ChatDone(BaseModel):
     refused: bool
     prompt_version: str
     request_id: str
+    guardrails: list[GuardrailOutcome]
+    blocked: bool

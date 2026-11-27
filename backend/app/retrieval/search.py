@@ -47,7 +47,11 @@ async def active_doc_ids(session: AsyncSession, user_id: UUID, *, embed_model: s
 def _scoped(
     stmt: Select[tuple[Chunk, float]], user_id: UUID, doc_ids: list[UUID]
 ) -> Select[tuple[Chunk, float]]:
-    return stmt.where(Chunk.user_id == user_id, Chunk.doc_id.in_(doc_ids))
+    return stmt.where(
+        Chunk.user_id == user_id,
+        Chunk.doc_id.in_(doc_ids),
+        Chunk.quarantined.is_(False),
+    )
 
 
 def _to_chunk(c: Chunk, score: float) -> RetrievedChunk:

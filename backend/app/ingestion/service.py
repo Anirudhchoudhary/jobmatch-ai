@@ -15,8 +15,12 @@ from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.errors import AppError, ProviderError
+from app.core.request_id import request_id_var
 from app.core.settings import Settings
 from app.db.models import Chunk, Document
+from app.guardrails.base import GuardContext, GuardrailOutcome
+from app.guardrails.factory import Guardrails
+from app.guardrails.pipeline import GuardrailPipeline, PipelineResult, record_outcome
 from app.ingestion.blobs import BlobStore, assert_owned_key
 from app.ingestion.chunking import ChunkDraft, chunk_jd, chunk_resume
 from app.ingestion.pdf import parse_pdf, validate_jd_text
@@ -26,7 +30,7 @@ from app.schemas.documents import DocumentReady, DocumentRequest, ProgressEvent
 log = structlog.get_logger(__name__)
 
 IngestEvent = tuple[str, BaseModel]
-Step = Literal["validating", "parsing", "chunking", "embedding", "storing"]
+Step = Literal["validating", "parsing", "chunking", "scanning", "embedding", "storing"]
 
 
 def _progress(step: Step, status: Literal["started", "done"]) -> IngestEvent:
@@ -89,12 +93,42 @@ async def _record_parse_failure(
         log.error("ingest_record_failure_error", exc_info=exc)
 
 
+async def _record_file_validation(
+    pipeline: GuardrailPipeline, user_id: UUID, error_code: str
+) -> None:
+    """A rejected file is a guardrail event too (``record_outcome`` never raises)."""
+    outcome = GuardrailOutcome(
+        guardrail="file_validation",
+        provider="self",
+        stage="upload",
+        action="block",
+        mode="enforce",
+        reason=error_code,
+        latency_ms=0,
+        items=[],
+    )
+    ctx = GuardContext("upload", (), request_id_var.get(), user_id)
+    await record_outcome(pipeline.recorder, ctx, outcome)
+
+
+def _quarantine_reasons(scan: PipelineResult, count: int) -> dict[int, str]:
+    """Chunk index -> reason of the first enforce-mode block covering it."""
+    reasons: dict[int, str] = {}
+    for o in scan.outcomes:
+        if o.action != "block" or o.mode != "enforce":
+            continue
+        for i in o.items or range(count):
+            reasons.setdefault(i, o.reason)
+    return reasons
+
+
 async def _read_source(
     request: DocumentRequest,
     user_id: UUID,
     sessionmaker: async_sessionmaker[AsyncSession],
     blobs: BlobStore,
     settings: Settings,
+    pipeline: GuardrailPipeline,
 ) -> tuple[str, int | None, str]:
     """Return (text, page_count, sha256) for the request's source."""
     if request.upload_key is not None:
@@ -108,12 +142,17 @@ async def _read_source(
             )
         except AppError as exc:
             await _record_parse_failure(sessionmaker, user_id, request, data, exc.code)
+            await _record_file_validation(pipeline, user_id, exc.code)
             raise
         return parsed.text, parsed.page_count, parsed.sha256
     assert request.text is not None  # noqa: S101  (guaranteed by DocumentRequest)
-    text = validate_jd_text(
-        request.text, min_chars=settings.jd_min_chars, max_chars=settings.jd_max_chars
-    )
+    try:
+        text = validate_jd_text(
+            request.text, min_chars=settings.jd_min_chars, max_chars=settings.jd_max_chars
+        )
+    except AppError as exc:
+        await _record_file_validation(pipeline, user_id, exc.code)
+        raise
     return text, None, hashlib.sha256(text.encode()).hexdigest()
 
 
@@ -137,18 +176,19 @@ async def _find_reusable(
         ).first()
         if row is None or row.content_sha256 != sha or row.embed_model != embed_model:
             return None
-        count = (
+        count, quarantined = (
             await session.execute(
-                select(func.count())
+                select(func.count(), func.count().filter(Chunk.quarantined.is_(True)))
                 .select_from(Chunk)
                 .where(Chunk.user_id == user_id, Chunk.doc_id == row.id)
             )
-        ).scalar_one()
+        ).one()
     return DocumentReady(
         document_id=row.id,
         doc_type=doc_type,
         chunk_count=count,
         reused=True,
+        quarantined_count=quarantined,
     )
 
 
@@ -159,6 +199,7 @@ async def _store(
     doc_type: str,
     drafts: list[ChunkDraft],
     vectors: list[list[float]],
+    quarantine: dict[int, str],
 ) -> None:
     async with sessionmaker() as session:
         # Serialize same-user, same-type ingests: the last writer wins deterministically.
@@ -183,8 +224,10 @@ async def _store(
                 ordinal=d.ordinal,
                 text=d.text,
                 embedding=vec,
+                quarantined=i in quarantine,
+                quarantine_reason=quarantine.get(i),
             )
-            for d, vec in zip(drafts, vectors, strict=True)
+            for i, (d, vec) in enumerate(zip(drafts, vectors, strict=True))
         )
         await session.execute(
             update(Document)
@@ -202,6 +245,7 @@ async def ingest_document(
     blobs: BlobStore,
     embedder: Embedder,
     settings: Settings,
+    guardrails: Guardrails,
     source: Literal["sample"] | None = None,
 ) -> AsyncIterator[IngestEvent]:
     """``source`` is internal (not client-settable): only the bundled samples pass it."""
@@ -214,7 +258,9 @@ async def ingest_document(
     yield _progress("validating", "done")
 
     yield _progress("parsing", "started")
-    text, page_count, sha = await _read_source(request, user_id, sessionmaker, blobs, settings)
+    text, page_count, sha = await _read_source(
+        request, user_id, sessionmaker, blobs, settings, guardrails.upload
+    )
     yield _progress("parsing", "done")
 
     reused = await _find_reusable(sessionmaker, user_id, doc_type, sha, embedder.embed_model)
@@ -249,6 +295,20 @@ async def ingest_document(
             raise AppError("empty_document", "No usable text was found in that document.", 422)
         yield _progress("chunking", "done")
 
+        yield _progress("scanning", "started")
+        scan = await guardrails.upload.run(
+            GuardContext("upload", tuple(d.text for d in drafts), request_id_var.get(), user_id)
+        )
+        quarantine = _quarantine_reasons(scan, len(drafts))
+        if len(quarantine) == len(drafts):
+            raise AppError(
+                "document_quarantined",
+                "This document looks like it contains instructions aimed at the AI, "
+                "so it can't be used.",
+                422,
+            )
+        yield _progress("scanning", "done")
+
         yield _progress("embedding", "started")
         t_embed = time.perf_counter()
         vectors = await embedder.embed_documents([d.text for d in drafts])
@@ -258,7 +318,7 @@ async def ingest_document(
         yield _progress("embedding", "done")
 
         yield _progress("storing", "started")
-        await _store(sessionmaker, user_id, doc_id, doc_type, drafts, vectors)
+        await _store(sessionmaker, user_id, doc_id, doc_type, drafts, vectors, quarantine)
         yield _progress("storing", "done")
     except BaseException as exc:
         # BaseException covers CancelledError and GeneratorExit (client disconnect).
@@ -277,11 +337,19 @@ async def ingest_document(
         "ingest_done",
         doc_type=doc_type,
         chunk_count=len(drafts),
+        quarantined_count=len(quarantine),
         page_count=page_count,
         embed_s=round(embed_s, 3),
         total_s=round(time.perf_counter() - t0, 3),
     )
     yield (
         "done",
-        DocumentReady(document_id=doc_id, doc_type=doc_type, chunk_count=len(drafts), reused=False),
+        DocumentReady(
+            document_id=doc_id,
+            doc_type=doc_type,
+            chunk_count=len(drafts),
+            reused=False,
+            quarantined_count=len(quarantine),
+            guardrails=[o for o in scan.outcomes if o.action != "allow"],
+        ),
     )

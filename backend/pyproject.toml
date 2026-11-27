@@ -17,6 +17,9 @@ dependencies = [
     "langgraph>=1.2.24",
     "langchain-core>=1.8.5",
     "langchain-anthropic>=1.7.13",
+    "presidio-analyzer>=2.2.366",
+    "spacy>=3.8.18",
+    "en-core-web-sm",
 ]
 
 [dependency-groups]
@@ -36,6 +39,9 @@ dev = [
 
 [tool.uv]
 package = false
+
+[tool.uv.sources]
+en-core-web-sm = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" }
 
 [tool.ruff]
 line-length = 100

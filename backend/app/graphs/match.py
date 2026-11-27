@@ -7,7 +7,7 @@ per-(documents, analyst) cache and persistence around the graph.
 """
 
 import time
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from typing import Any, TypedDict, cast
 from uuid import UUID
 
@@ -25,6 +25,7 @@ from app.analysis.score import ScoreResult, compute_score
 from app.core.errors import AppError
 from app.core.request_id import request_id_var
 from app.graphs.citations import label_context
+from app.guardrails.pipeline import GuardrailRecorder, NullRecorder, record_hallucination_block
 from app.llm.structured import StructuredOutputError
 from app.retrieval.search import RetrievedChunk
 from app.schemas.match import (
@@ -38,6 +39,7 @@ from app.schemas.match import (
 )
 
 log = structlog.get_logger(__name__)
+_NULL_RECORDER = NullRecorder()
 
 type MatchGraph = CompiledStateGraph[MatchState, None, MatchState, MatchState]
 
@@ -203,6 +205,8 @@ async def analysis_events(
     user_id: UUID,
     sessionmaker: async_sessionmaker[AsyncSession],
     analyst: Analyst,
+    before_fresh: Callable[[], Awaitable[None]] | None = None,
+    recorder: GuardrailRecorder = _NULL_RECORDER,
 ) -> AsyncIterator[tuple[str, BaseModel]]:
     """``progress`` events then ``done`` (a ``MatchAnalysis``). No DB session is held while
     the analyst runs; the analysis is saved only after the graph succeeds."""
@@ -222,6 +226,9 @@ async def analysis_events(
         yield "done", done
         return
 
+    if before_fresh is not None:
+        await before_fresh()
+
     final = initial_state(user_id, docs)
     graph_start = time.perf_counter()
     async for mode, raw in build_match_graph(analyst).astream(
@@ -234,6 +241,10 @@ async def analysis_events(
         if part["type"] == "progress":
             yield "progress", AnalysisProgress(step=part["step"])
     graph_ms = _ms(graph_start)
+    if final["downgraded"] > 0:
+        await record_hallucination_block(
+            recorder, user_id, f"evidence_downgraded:{final['downgraded']}"
+        )
 
     result = _result(final, analyst.name)
     async with sessionmaker() as session:

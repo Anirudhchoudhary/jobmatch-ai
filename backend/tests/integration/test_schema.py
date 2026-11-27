@@ -119,3 +119,17 @@ def test_downgrade_then_upgrade() -> None:
         command.downgrade(cfg, "0001")
     finally:
         command.upgrade(cfg, "head")
+
+
+async def test_guardrail_schema_objects_exist(session: AsyncSession) -> None:
+    tables = {r[0] for r in await session.execute(text("SELECT tablename FROM pg_tables"))}
+    assert {"guardrail_events", "usage_counters"} <= tables
+    cols = await session.execute(
+        text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'chunks' AND column_name IN ('quarantined','quarantine_reason')"
+        )
+    )
+    assert {r[0] for r in cols} == {"quarantined", "quarantine_reason"}
+    idx = {r[0] for r in await session.execute(text("SELECT indexname FROM pg_indexes"))}
+    assert "ix_guardrail_events_created" in idx

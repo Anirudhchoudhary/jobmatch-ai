@@ -12,6 +12,11 @@ REFUSAL_TEXT: Final = (
     "I can only answer from your resume and the job description, and I couldn't find that in them."
 )
 
+OFF_TOPIC_TEXT: Final = "I can only help with questions about your resume and this job description."
+INJECTION_TEXT: Final = (
+    "That looks like an attempt to change my instructions, so I can't help with it."
+)
+
 _LABEL_RE: Final = re.compile(r"\[([rj]\d+)\]")
 _PREFIX: Final = {"resume": "r", "jd": "j"}
 
