@@ -33,7 +33,7 @@ async def test_lexical_supported() -> None:
 
 
 async def test_lexical_no_citation() -> None:
-    result = await LexicalGroundedness(0.5).check(_ctx("You built Kafka pipelines at Acme."))
+    result = await LexicalGroundedness(0.5).check(_ctx("You managed Oracle databases in Europe."))
     assert (result.action, result.reason, result.items) == ("flag", "ungrounded:1/1", (0,))
 
 
@@ -63,10 +63,46 @@ async def test_claude_judge_flags_claim() -> None:
     assert '<claim label="c2">' in str(model.calls[0][-1].content)
 
 
-async def test_claude_unlabelled_claims_skip_model() -> None:
+UNCITED_SOURCES = (
+    "r1\thands-on Kafka and Terraform experience",
+    "r2\tplatform on Kafka",
+)
+UNCITED_ANSWER = "Has hands-on Kafka experience. Built a Kafka platform [r2]."
+
+
+async def test_uncited_claim_checked_against_all_sources() -> None:
+    result = await LexicalGroundedness(0.5).check(_ctx(UNCITED_ANSWER, UNCITED_SOURCES))
+    assert (result.action, result.items) == ("allow", ())
+
+
+async def test_uncited_claim_unsupported_by_any_source_is_flagged() -> None:
+    answer = "Managed Oracle databases across Europe. Built a Kafka platform [r2]."
+    result = await LexicalGroundedness(0.5).check(_ctx(answer, UNCITED_SOURCES))
+    assert (result.action, result.items) == ("flag", (0,))
+
+
+async def test_claude_uncited_claim_prompt_includes_every_source() -> None:
+    model = ScriptedStructuredModel([{"unsupported": []}])
+    result = await ClaudeGroundedness([model], PROMPT).check(_ctx(UNCITED_ANSWER, UNCITED_SOURCES))
+    assert result.action == "allow"
+    prompt = str(model.calls[0][-1].content)
+    first, second = prompt.split("\n\n")
+    assert '<claim label="c1">Has hands-on' in first
+    assert 'label="r1"' in first and 'label="r2"' in first
+    assert '<claim label="c2">' in second
+    assert 'label="r2"' in second and 'label="r1"' not in second
+
+
+async def test_claude_uncited_claim_flagged_when_judge_says_unsupported() -> None:
+    model = ScriptedStructuredModel([{"unsupported": ["c1"]}])
+    result = await ClaudeGroundedness([model], PROMPT).check(_ctx(UNCITED_ANSWER, UNCITED_SOURCES))
+    assert (result.action, result.items) == ("flag", (0,))
+
+
+async def test_claude_uncited_claim_with_no_sources_is_flagged_without_model() -> None:
     model = ScriptedStructuredModel([])
     result = await ClaudeGroundedness([model], PROMPT).check(
-        _ctx("You built Kafka pipelines at Acme.")
+        _ctx("You built Kafka pipelines at Acme.", ())
     )
     assert (result.action, result.items) == ("flag", (0,))
     assert model.calls == []

@@ -414,6 +414,26 @@ async def test_ungrounded_answer_flagged() -> None:
     assert [g.guardrail for g in done.guardrails] == ["groundedness"]
 
 
+async def test_chat_done_lists_all_guardrail_checks() -> None:
+    events = await run(FakeRetriever([CHUNK]), fake_model("Alex used Kafka [r1]."))
+    done = events[-1][1]
+    assert isinstance(done, ChatDone)
+    assert done.guardrails == []
+    assert all(o.action == "allow" for o in done.guardrail_checks)
+    names = [o.guardrail for o in done.guardrail_checks]
+    assert "groundedness" in names
+    assert len(names) > 1  # input-stage guards are listed too, before groundedness
+    assert names.index("groundedness") == len(names) - 1
+
+
+async def test_chat_done_checks_include_fired_guard() -> None:
+    events = await run(FakeRetriever([CHUNK]), fake_model("Alex led fifty engineers at Google."))
+    done = events[-1][1]
+    assert isinstance(done, ChatDone)
+    assert [g.guardrail for g in done.guardrails] == ["groundedness"]
+    assert len(done.guardrail_checks) > len(done.guardrails)
+
+
 async def test_monitor_groundedness_not_flagged() -> None:
     answer = "Alex led a team of fifty engineers at Google."
     events = await run(

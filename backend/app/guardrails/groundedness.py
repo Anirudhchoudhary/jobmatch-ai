@@ -94,6 +94,15 @@ def _parse_sources(sources: Sequence[str]) -> dict[str, str]:
     return parsed
 
 
+def _evidence_labels(claim: Claim, sources: Mapping[str, str]) -> list[str]:
+    """Source labels a claim is judged against: its cited ones, or every source if uncited.
+
+    A claim that cites only unknown labels has no evidence (empty list)."""
+    if not claim.labels:
+        return list(sources)
+    return [label for label in claim.labels if label in sources]
+
+
 def _tokens(text: str) -> set[str]:
     return {
         t for t in _TOKEN.findall(text.lower()) if len(t) >= _MIN_TOKEN_LEN and t not in STOPWORDS
@@ -130,7 +139,7 @@ class LexicalGroundedness:
         self._min_overlap = min_overlap
 
     def _supported(self, claim: Claim, sources: Mapping[str, str]) -> bool:
-        cited = [sources[label] for label in claim.labels if label in sources]
+        cited = [sources[label] for label in _evidence_labels(claim, sources)]
         if not cited:
             return False
         tokens = _tokens(_CITATION.sub("", claim.text))
@@ -154,8 +163,7 @@ def _format_claims(claims: Sequence[Claim], sources: Mapping[str, str]) -> str:
         lines = [f'<claim label="c{claim.index + 1}">{escape(claim.text, quote=False)}</claim>']
         lines += [
             f'<source label="{label}">{escape(sources[label], quote=False)}</source>'
-            for label in claim.labels
-            if label in sources
+            for label in _evidence_labels(claim, sources)
         ]
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks)
@@ -173,7 +181,7 @@ class ClaudeGroundedness:
         start = time.perf_counter()
         claims = _claims_to_check(ctx)
         sources = _parse_sources(ctx.sources)
-        unsupported = {c.index for c in claims if not any(label in sources for label in c.labels)}
+        unsupported = {c.index for c in claims if not _evidence_labels(c, sources)}
         askable = [c for c in claims if c.index not in unsupported]
         if askable:
             result = await run_structured(

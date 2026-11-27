@@ -51,6 +51,7 @@ class ChatDone(BaseModel):
     refused: bool
     prompt_version: str
     request_id: str
-    guardrails: list[GuardrailOutcome]
+    guardrails: list[GuardrailOutcome]  # only the checks that fired
+    guardrail_checks: list[GuardrailOutcome]  # every check that ran, including allow
     blocked: bool
     cached: bool = False
