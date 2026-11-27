@@ -62,6 +62,12 @@ def get_db_checker() -> DbChecker:
     return checker
 
 
+@router.get("/livez")
+async def livez() -> dict[str, str]:
+    """Process liveness only: no dependencies, so it never fails on DB state (Lambda readiness)."""
+    return {"status": "ok"}
+
+
 @router.get("/health", response_model=HealthResponse)
 async def health(
     response: Response, checker: Annotated[DbChecker, Depends(get_db_checker)]

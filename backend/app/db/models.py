@@ -208,3 +208,23 @@ class SemanticCacheEntry(Base):
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class LoginCode(Base):
+    """A hashed email OTP; only HMAC digests are stored, never the address or the code."""
+
+    __tablename__ = "login_codes"
+    __table_args__ = (
+        Index("ix_login_codes_email_created", "email_hash", "created_at"),
+        Index("ix_login_codes_ip_created", "ip_hash", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    email_hash: Mapped[str] = mapped_column(Text)
+    ip_hash: Mapped[str] = mapped_column(Text)
+    code_hash: Mapped[str] = mapped_column(Text)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(server_default=text("0"))
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    invalidated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

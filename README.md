@@ -1,12 +1,12 @@
 # JobMatch AI
 
-JobMatch AI is a backend that matches resumes to jobs using LLMs and pgvector similarity search. This repository currently contains Phases 1 to 6: a FastAPI app with structured, PII-redacted logging, a Postgres + pgvector database, migrations and a health endpoint (Phase 1), plus resume/JD ingestion, hybrid retrieval with reranking and streamed, cited chat (Phase 2), plus grounded match analysis and resume bullet suggestions (Phase 3), plus guardrails around uploads, chat and model output (Phase 4), plus request logging, cost tracking, a spend cap, a semantic cache and optional tracing (Phase 5), plus an eval suite with a golden dataset and a CI gate (Phase 6).
+JobMatch AI is a backend that matches resumes to jobs using LLMs and pgvector similarity search. This repository currently contains Phases 1 to 7: a FastAPI app with structured, PII-redacted logging, a Postgres + pgvector database, migrations and a health endpoint (Phase 1), plus resume/JD ingestion, hybrid retrieval with reranking and streamed, cited chat (Phase 2), plus grounded match analysis and resume bullet suggestions (Phase 3), plus guardrails around uploads, chat and model output (Phase 4), plus request logging, cost tracking, a spend cap, a semantic cache and optional tracing (Phase 5), plus an eval suite with a golden dataset and a CI gate (Phase 6), plus email one-time-code sign-in and an AWS CLI deploy to Lambda (Phase 7).
 
 ## Prerequisites
 
 - Docker (with Compose v2)
 - [uv](https://docs.astral.sh/uv/)
-- AWS credentials (only needed for `make env`; it uses boto3, so e.g. `aws sso login` or `aws login` works; the AWS CLI binary itself is not required)
+- AWS credentials (only needed for `make env`; it uses boto3, so e.g. `aws sso login` or `aws login` works; the AWS CLI binary itself is not required). Deploying needs more: see Phase 7 prerequisites below
 
 ## Quickstart
 
@@ -60,7 +60,7 @@ curl -N localhost:8000/api/stream/documents -H 'Content-Type: application/json' 
 No resume handy? Ingest the bundled fictional samples (Alex Rivera and a Senior Backend Engineer job description) in one call, then ask a question:
 
 ```sh
-curl -N -X POST localhost:8000/api/samples
+curl -N localhost:8000/api/samples -H 'Content-Type: application/json' -d '{}'
 curl -N localhost:8000/api/stream/chat -H 'Content-Type: application/json' \
   -d '{"question":"Does Alex have Kubernetes experience?"}'
 ```
@@ -113,8 +113,8 @@ Live run with Titan embeddings and Amazon Rerank over the bundled samples (12 qu
 With the resume and job description ingested (for example via `POST /api/samples`), run a match analysis. It streams `progress` events (`loading`, `extracting_requirements`, `extracting_skills`, `matching`, `validating`, `scoring`), then one `done` event carrying the `MatchAnalysis`: `analysis_id`, `score` (0 to 100), `required_coverage`, `nice_to_have_coverage`, `skills` (each requirement with its `status` of `matched`, `partial` or `missing` and its resume `evidence` quotes), `downgraded_count`, `analyst`, `cached` and `request_id`.
 
 ```sh
-curl -N -X POST localhost:8000/api/samples
-curl -N -X POST localhost:8000/api/stream/analyses
+curl -N localhost:8000/api/samples -H 'Content-Type: application/json' -d '{}'
+curl -N localhost:8000/api/stream/analyses -H 'Content-Type: application/json' -d '{}'
 
 # suggestions for the latest analysis of your current resume and job description
 curl -s -X POST localhost:8000/api/suggestions -H 'Content-Type: application/json' -d '{}'
@@ -245,7 +245,7 @@ Grounded chat answers are cached per user by question embedding. A new question 
 - The cache is bypassed when any guard outcome is not `allow`, including when PII was redacted from the question.
 - Uploading a new document clears that user's cache rows.
 - A cache hit still uses chat allowance.
-- Expired rows are ignored but not deleted yet; a cleanup job comes in Phase 7.
+- Expired rows are ignored but not deleted yet; the hourly cleanup job (Phase 7) now purges them when deployed.
 
 ### Fallback
 
@@ -288,7 +288,7 @@ No guardrail events recorded.
 
 - The cost of a failed partial stream is not recorded (usage is captured on model completion, not on error), so such spend is not counted toward the cap or the report.
 - The spend cap counts only finished requests; spend from requests still in flight is not included.
-- Langfuse flushes on shutdown only until Phase 7, so traces can appear late.
+- Langfuse flushes on shutdown only (not yet per request on Lambda), so traces can appear late.
 - Presidio masking adds latency to traced requests.
 
 ## Phase 6: evals
@@ -340,7 +340,7 @@ These call Anthropic (judge and chat) and Bedrock, so they **spend money** on th
 `.github/workflows/evals.yml`:
 
 - `eval-offline` runs on every PR, forks included, with no secrets and read-only permissions. The report goes to the job summary and `var/evals/` is uploaded as the `evals-offline` artifact.
-- `eval-live` runs only for own-repo PRs and pushes to `main`, and only when the repository variable `AWS_EVAL_ROLE_ARN` is set (the OIDC role comes in Phase 7; until then the job is skipped). Credentials come from OIDC and the `jobmatch/ci` secret, nothing is stored in GitHub. Keys in the `jobmatch/ci` secret (for example `DATABASE_URL`, `LLM_PROVIDER`, `GUARD_*`) override the eval settings, so that secret must hold only credentials (`ANTHROPIC_API_KEY`). It runs the cheap subset, or the full set on `main` and on PRs labelled `full-eval`, uploads `evals-live`, and posts the report as a PR comment.
+- `eval-live` runs only for own-repo PRs and pushes to `main`, and only when the repository variable `AWS_EVAL_ROLE_ARN` is set (the OIDC role is not created yet, so the job is skipped). Credentials come from OIDC and the `jobmatch/ci` secret, nothing is stored in GitHub. Keys in the `jobmatch/ci` secret (for example `DATABASE_URL`, `LLM_PROVIDER`, `GUARD_*`) override the eval settings, so that secret must hold only credentials (`ANTHROPIC_API_KEY`). It runs the cheap subset, or the full set on `main` and on PRs labelled `full-eval`, uploads `evals-live`, and posts the report as a PR comment.
 - Workflows use `pull_request`, never `pull_request_target`.
 
 ### Results
@@ -363,5 +363,83 @@ The answerable answer rate is 0 because the fake chat model returns one fixed an
 ### Known limits
 
 - Offline numbers measure the heuristic/fake pipeline only; they say nothing about real model quality.
-- The self-built versus Bedrock guardrail comparison needs the Phase 7 Bedrock guardrail; the Bedrock rows are empty until then.
+- The self-built versus Bedrock guardrail comparison needs a Bedrock guardrail, which is not created yet; the Bedrock rows are empty until then.
 - `evals/baseline.json` has not been captured live yet, so live runs have no before/after deltas.
+
+## Phase 7: sign-in and deploy
+
+Email one-time-code sign-in replaces the fixed dev user outside `local`/`ci`, and `make deploy` puts the API on AWS Lambda behind a public Function URL.
+
+### Sign-in
+
+1. `POST /api/auth/request-code` with `{"email": ...}` always answers 202 and, when allowed, emails a 6-digit code.
+2. `POST /api/auth/verify` with the email and code sets an httponly, `SameSite=Lax` session cookie (`Secure` outside local). `GET /api/auth/me` returns the signed-in user; `POST /api/auth/logout` clears the cookie.
+
+Limits: 3 codes per email per hour, 10 per IP per hour, 90 sign-in emails per day in total (under Resend's free-tier daily quota; `OTP_GLOBAL_PER_DAY`), 5 wrong attempts per code, codes valid 10 minutes, session cookie valid 7 days. Login codes are stored as HMAC digests and emails are never logged. On Lambda the per-IP limit uses the source IP from the Function URL request context (`x-amzn-request-context`, set by Lambda Web Adapter), falling back to `X-Forwarded-For`.
+
+Every `POST`, `PUT`, `PATCH` and `DELETE` under `/api/` must be sent as `Content-Type: application/json` (bodyless calls such as logout too), otherwise it is refused with 415 `unsupported_media_type`. Cross-site forms and "simple" requests therefore cannot reach the cookie-authenticated routes. The only exception is the local-only PDF `PUT /api/uploads/<key>`. With `ENV=prod` the `/docs`, `/redoc` and `/openapi.json` pages are off.
+
+Locally nothing is sent: with `EMAIL_SENDER=console` (the default; refused when `ENV=prod`) the code is written to the API log, so `make logs` shows it. This is for local use only.
+
+### Prerequisites
+
+- A Neon project with the pgvector extension, and its connection string as `postgresql+psycopg://...?sslmode=require`.
+- A Resend API key and a sender address (`EMAIL_FROM`). Without a verified domain Resend only delivers to the address of the account owner.
+- An Anthropic API key with a low spend limit set in the Anthropic console.
+- `BUDGET_EMAIL`: the address for AWS Budgets alerts (an environment variable, never stored).
+- AWS credentials for the target account, plus `aws`, `docker`, `jq` and `git` on the PATH (the deploy scripts use the AWS CLI; the Makefile's `make env` does not).
+
+### Deploy
+
+```bash
+make secrets-set                       # prompts for each value (never echoed), writes jobmatch/prod
+make migrate-prod                      # alembic upgrade head against the prod DATABASE_URL
+BUDGET_EMAIL=you@example.com make deploy
+make smoke-prod                        # GET <Function URL>/health must report "status": "ok"
+```
+
+`make secrets-set` generates the session-signing and OTP keys for you. `make deploy` runs `infra/aws/deploy.sh` (region `us-west-2`, names in `infra/aws/config.sh`). Every step is idempotent and records each resource in `var/deploy/state.json` as it is created, so a failed run can be re-run or torn down. It prints the Function URL at the end. The Lambda environment holds settings only; secrets are read from `jobmatch/prod` at runtime.
+
+### Teardown
+
+```bash
+make teardown                          # asks you to type the secret name before deleting it
+make teardown TEARDOWN_ARGS=--keep-secret
+```
+
+Teardown deletes everything deploy created, in dependency order: schedule, IAM roles and policies, Lambda functions, Function URL and permissions, log groups, the S3 bucket (all object versions), the ECR repository and images, unless `--keep-secret` the `jobmatch/prod` secret (without recovery window), and last the budgets. The budgets are kept while anything else could not be deleted, so the cost alerts stay in place until a re-run removes the rest. It works from the state file and also sweeps every name in `config.sh`, so a lost state file does not leave anything behind. It then checks by name and through the tagging API for anything still tagged `Project=jobmatch-ai`, and exits 1 listing what remains. The state file is removed only when nothing is left.
+
+### AWS resources
+
+| Resource | Name | Purpose |
+|---|---|---|
+| Lambda function (container image) | `jobmatch-api` | The FastAPI app via Lambda Web Adapter, 2048 MB, 300 s, response streaming |
+| Function URL | on `jobmatch-api` | Public HTTPS endpoint, no auth at the URL (the app authenticates) |
+| Lambda function | `jobmatch-cleanup` | Same image with `CLEANUP_MODE`, purges expired rows |
+| EventBridge Scheduler schedule | `jobmatch-cleanup-hourly` | Runs the cleanup function every hour |
+| ECR repository | `jobmatch-api` | Image storage, keeps the last 3 images |
+| S3 bucket | `jobmatch-uploads-<account-id>` | Uploaded files: private, encrypted, objects expire after 3 days |
+| IAM roles | `jobmatch-lambda`, `jobmatch-scheduler` | Least-privilege inline policies from `infra/aws/policies/` |
+| CloudWatch log groups | `/aws/lambda/jobmatch-api`, `/aws/lambda/jobmatch-cleanup` | 14-day retention |
+| Secrets Manager secret | `jobmatch/prod` | Created by `make secrets-set`, not by deploy |
+| Budgets | `jobmatch-10`, `jobmatch-25` | Email `BUDGET_EMAIL` at 100% of $10 and $25 monthly |
+| Reserved concurrency | 5 on `jobmatch-api` | Caps how far a public URL can scale |
+
+The cleanup function deletes documents (with chunks and analyses), semantic-cache rows, login codes and usage counters older than the retention window (`RETENTION_HOURS`, 72). Users, guardrail events and the request log are kept.
+
+### Expected monthly cost
+
+- AWS: under $2. Lambda, S3 and logs stay in the free tier at demo traffic; ECR about $0.45 to $0.60 (roughly 1.5 to 2 GB per image, 3 images kept, $0.10 per GB-month), Secrets Manager $0.40 per secret, budgets are free.
+- Anthropic: capped by the app's $1/day spend backstop (`DAILY_SPEND_CAP_USD`), plus the spend limit you set in the Anthropic console.
+- Neon free tier and Resend free tier: $0.
+
+### Known limits
+
+- There is no frontend yet, so the Function URL is the public endpoint and there is no CloudFront or custom domain.
+- Sessions are stateless signed cookies: logout clears the cookie but does not revoke a stolen one, which stays valid for up to 7 days.
+- Reserved concurrency may be refused on new accounts (low account limit). Deploy then warns and continues without a cap, and the Budgets alerts are the only cost backstop.
+- The per-IP limit prefers the Function URL request context's source IP. Only when that is missing does it fall back to `X-Forwarded-For` with `TRUSTED_PROXY_HOPS=1`, which assumes the Function URL is the only proxy in front of the app. Adding CloudFront or another proxy changes the source IP Lambda sees (it becomes the proxy's), so per-IP limits would then need the proxy's forwarded header.
+- The S3 uploads bucket has no CORS configuration, so a browser cannot `PUT` to a presigned upload URL yet (curl and other non-browser clients can). The frontend phase adds it.
+- Re-running deploy does not change an existing budget's alert email: budgets are only created when missing. To change `BUDGET_EMAIL`, edit the budget's subscriber in the AWS console (or delete the budget and redeploy).
+- The Bedrock guardrail is not created, so the Bedrock rows in the eval comparison stay empty.
+- The spec's events/analytics table (§2) is deferred.

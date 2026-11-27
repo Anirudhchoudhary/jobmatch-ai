@@ -1,0 +1,7 @@
+# Extend gitleaks' default rules; allowlist only Secrets Manager secret *names* (not values).
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Secrets Manager secret names such as jobmatch/prod are identifiers, not credentials"
+regexes = ['''^jobmatch/(prod|dev|ci)$''']

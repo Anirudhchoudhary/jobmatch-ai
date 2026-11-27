@@ -52,7 +52,7 @@ async def test_samples_endpoint_ingests_both(engine: AsyncEngine, tmp_path: Path
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test"
         ) as client:
-            resp = await client.post("/api/samples")
+            resp = await client.post("/api/samples", json={})
         assert resp.status_code == 200
         done = [d for name, d in parse_sse(resp.text) if name == "done"]
         assert [d["doc_type"] for d in done] == ["resume", "jd"]

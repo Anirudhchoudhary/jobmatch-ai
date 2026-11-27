@@ -189,6 +189,6 @@ async def test_samples_api_at_capacity_returns_503(
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
-        resp = await client.post("/api/samples")
+        resp = await client.post("/api/samples", json={})
     assert resp.status_code == 503
     assert resp.json()["error"]["code"] == "demo_at_capacity"

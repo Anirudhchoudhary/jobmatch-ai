@@ -1,0 +1,47 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "BedrockEmbedAndRerankModels",
+      "Effect": "Allow",
+      "Action": "bedrock:InvokeModel",
+      "Resource": [
+        "arn:aws:bedrock:__REGION__::foundation-model/amazon.titan-embed-text-v2:0",
+        "arn:aws:bedrock:__REGION__::foundation-model/amazon.rerank-v1:0"
+      ]
+    },
+    {
+      "Sid": "BedrockRerankApiHasNoResourceLevelPermissions",
+      "Effect": "Allow",
+      "Action": "bedrock:Rerank",
+      "Resource": "*"
+    },
+    {
+      "Sid": "ReadAppSecret",
+      "Effect": "Allow",
+      "Action": "secretsmanager:GetSecretValue",
+      "Resource": "arn:aws:secretsmanager:__REGION__:__ACCOUNT_ID__:secret:__SECRET_ID__-??????"
+    },
+    {
+      "Sid": "UploadsPrefix",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+      "Resource": "arn:aws:s3:::__BUCKET__/uploads/*"
+    },
+    {
+      "Sid": "ListUploadsPrefixSoMissingKeysAre404Not403",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::__BUCKET__"
+    },
+    {
+      "Sid": "OwnLogGroups",
+      "Effect": "Allow",
+      "Action": ["logs:CreateLogStream", "logs:PutLogEvents"],
+      "Resource": [
+        "arn:aws:logs:__REGION__:__ACCOUNT_ID__:log-group:/aws/lambda/__API_FUNCTION__:*",
+        "arn:aws:logs:__REGION__:__ACCOUNT_ID__:log-group:/aws/lambda/__CLEANUP_FUNCTION__:*"
+      ]
+    }
+  ]
+}

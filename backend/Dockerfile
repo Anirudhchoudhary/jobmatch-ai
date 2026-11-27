@@ -1,6 +1,8 @@
 FROM python:3.12-slim
 
 COPY --from=ghcr.io/astral-sh/uv:0.13.10 /uv /uvx /bin/
+# Lambda Web Adapter (pinned): inert outside Lambda, proxies Function URL / pass-through events to uvicorn.
+COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:1.1.0 /lambda-adapter /opt/extensions/lambda-adapter
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -15,11 +17,15 @@ RUN uv sync --frozen --no-dev
 COPY app ./app
 COPY prompts ./prompts
 
-# Upload blobs live under the app dir (the repo-root default resolves to / in the image).
-ENV UPLOAD_DIR=/app/var/uploads
-RUN useradd --system --no-create-home appuser \
-    && mkdir -p /app/var/uploads \
-    && chown -R appuser /app/var
+# Lambda's filesystem is read-only except /tmp: uploads, HOME and caches all live there.
+ENV UPLOAD_DIR=/tmp/uploads \
+    HOME=/tmp \
+    PYTHONDONTWRITEBYTECODE=1 \
+    AWS_LWA_PORT=8000 \
+    AWS_LWA_READINESS_CHECK_PATH=/livez \
+    AWS_LWA_INVOKE_MODE=response_stream
+# Lambda ignores USER for container images; it is kept for docker compose.
+RUN useradd --system --no-create-home appuser
 USER appuser
 
 EXPOSE 8000

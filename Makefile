@@ -6,7 +6,7 @@ RUN2 = && $(UV) run
 DATABASE_URL ?= postgresql+psycopg://jobmatch:jobmatch@localhost:5432/jobmatch
 export DATABASE_URL
 
-.PHONY: install lint fmt typecheck test test-integration test-evals env up down migrate db-shell setup run logs samples retrieval-eval retrieval-eval-live report eval eval-baseline eval-live eval-live-baseline
+.PHONY: install lint fmt typecheck test test-integration test-evals env up down migrate db-shell setup run logs samples retrieval-eval retrieval-eval-live report eval eval-baseline eval-live eval-live-baseline secrets-set migrate-prod deploy teardown smoke-prod
 
 install:
 	cd backend && $(UV) sync --locked
@@ -84,3 +84,33 @@ eval-live:
 # Writes the committed live baseline (naive variant, full set); spends the Anthropic key; ask first.
 eval-live-baseline:
 	cd backend && $(UV) run --group evals python -m scripts.run_evals --profile live --variant baseline --subset full --out ../var/evals/live-baseline --write-baseline ../evals/baseline.json --no-gate
+
+# ---- AWS deploy (us-west-2). Order: secrets-set -> migrate-prod -> deploy -> smoke-prod.
+# BUDGET_EMAIL and secret values are never committed; state lives in git-ignored var/deploy/.
+PROD_SECRET_ID = jobmatch/prod
+DEPLOY_STATE = var/deploy/state.json
+
+# Prompts for each prod secret key (values are never echoed) and writes AWS Secrets Manager.
+secrets-set:
+	cd backend && $(UV) run python scripts/secrets_set.py --secret-id $(PROD_SECRET_ID)
+
+# Runs migrations against the prod DATABASE_URL read from the secret.
+migrate-prod:
+	cd backend && SECRETS_SOURCE=aws SECRET_ID=$(PROD_SECRET_ID) $(UV) run alembic upgrade head
+
+# Needs BUDGET_EMAIL in the environment: BUDGET_EMAIL=you@example.com make deploy
+deploy:
+	infra/aws/deploy.sh
+
+# Deletes everything deploy created, and the secret after a typed confirmation.
+# TEARDOWN_ARGS=--keep-secret keeps the secret; TEARDOWN_ARGS=--yes skips the confirmation.
+teardown:
+	infra/aws/teardown.sh $(TEARDOWN_ARGS)
+
+# GET <Function URL>/health from the state file and require "status": "ok".
+smoke-prod:
+	@url=$$(jq -r '.function_url // empty' $(DEPLOY_STATE) 2>/dev/null); \
+	test -n "$$url" || { echo "no Function URL in $(DEPLOY_STATE): run make deploy first" >&2; exit 1; }; \
+	curl -fsS --max-time 60 "$${url%/}/health" | jq -e '.status == "ok"' >/dev/null \
+	  && echo "smoke-prod ok: $${url%/}/health" \
+	  || { echo "smoke-prod failed: $${url%/}/health did not report status ok" >&2; exit 1; }

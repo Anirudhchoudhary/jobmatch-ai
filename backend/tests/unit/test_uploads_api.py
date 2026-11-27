@@ -145,6 +145,11 @@ def test_put_requires_pdf_content_type(client: TestClient, tmp_path: Path) -> No
 def test_put_not_mounted_in_prod(store: LocalBlobStore, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@localhost/db")
     monkeypatch.setenv("ENV", "prod")
+    monkeypatch.setenv("SESSION_SIGNING_KEY", "fake-signing-key-0123456789-abcdefghij")
+    monkeypatch.setenv("OTP_HMAC_KEY", "fake-otp-hmac-key-0123456789-abcdefghij")
+    monkeypatch.setenv("EMAIL_SENDER", "resend")
+    monkeypatch.setenv("RESEND_API_KEY", "fake-resend")
+    monkeypatch.setenv("EMAIL_FROM", "noreply@example.com")
     get_settings.cache_clear()
     client = _wire(create_app(), store)
     key = new_upload_key(ME)
