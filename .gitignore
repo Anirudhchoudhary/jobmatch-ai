@@ -14,3 +14,4 @@ backend/.venv/
 # local AWS CLI installer files (not part of the project)
 /aws/
 /awscliv2.zip
+var/

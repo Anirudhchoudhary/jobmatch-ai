@@ -6,7 +6,7 @@ RUN2 = && $(UV) run
 DATABASE_URL ?= postgresql+psycopg://jobmatch:jobmatch@localhost:5432/jobmatch
 export DATABASE_URL
 
-.PHONY: install lint fmt typecheck test test-integration env up down migrate db-shell setup run logs
+.PHONY: install lint fmt typecheck test test-integration env up down migrate db-shell setup run logs samples retrieval-eval retrieval-eval-live
 
 install:
 	cd backend && $(UV) sync --locked
@@ -48,3 +48,14 @@ run:
 
 logs:
 	docker compose logs -f api
+
+samples:
+	$(RUN) python scripts/make_samples.py
+
+# Offline providers (hash embedder, no reranker); prints the table, writes an ignored file.
+retrieval-eval:
+	$(RUN) python -m scripts.retrieval_eval --out ../var/retrieval_baseline.offline.json
+
+# Real Bedrock embeddings + rerank: needs AWS credentials; costs fractions of a cent.
+retrieval-eval-live:
+	cd backend && EMBEDDER_PROVIDER=bedrock RERANKER_PROVIDER=bedrock $(UV) run python -m scripts.retrieval_eval --out ../evals/retrieval_baseline.json

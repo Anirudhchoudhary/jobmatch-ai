@@ -7,9 +7,10 @@ from sqlalchemy.engine import Connection
 
 from app.core.settings import get_settings
 from app.db.engine import make_engine
+from app.db.models import Base
 
 config = context.config
-target_metadata = None
+target_metadata = Base.metadata
 
 
 def _url() -> str:

@@ -4,18 +4,11 @@ from pathlib import Path
 import pytest
 
 from app.core import settings as settings_module
-from app.core.settings import get_settings
+from app.core.settings import Settings, get_settings
 from app.db.engine import get_engine
+from app.llm.providers import get_providers
 
-_ISOLATED_ENV_VARS = (
-    "DATABASE_URL",
-    "SECRETS_SOURCE",
-    "SECRET_ID",
-    "AWS_REGION",
-    "ENV",
-    "LOG_LEVEL",
-    "DB_CONNECT_TIMEOUT_S",
-)
+_ISOLATED_ENV_VARS = sorted({name.upper() for name in Settings.model_fields} | {"SECRET_ID"})
 
 
 @pytest.fixture(autouse=True)
@@ -28,6 +21,8 @@ def _isolated_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Itera
     monkeypatch.setattr(settings_module, "ENV_FILE", empty)
     get_settings.cache_clear()
     get_engine.cache_clear()
+    get_providers.cache_clear()
     yield
     get_settings.cache_clear()
     get_engine.cache_clear()
+    get_providers.cache_clear()

@@ -4,12 +4,14 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import SecretStr
+from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.secrets import load_secret
+from app.db.models import EMBEDDING_DIM
 
-ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+ENV_FILE = _REPO_ROOT / ".env"
 
 
 class _Bootstrap(BaseSettings):
@@ -29,6 +31,58 @@ class Settings(_Bootstrap):
     database_url: SecretStr
     log_level: str = "INFO"
     db_connect_timeout_s: float = 3.0
+
+    # Providers (offline fakes by default)
+    llm_provider: Literal["fake", "anthropic"] = "fake"
+    embedder_provider: Literal["hash", "bedrock"] = "hash"
+    reranker_provider: Literal["none", "bedrock"] = "none"
+
+    # Anthropic
+    anthropic_api_key: SecretStr | None = None
+    chat_model: str = "claude-haiku-5-5"
+    chat_max_tokens: int = 1024
+    llm_timeout_s: float = 30.0
+
+    # Bedrock
+    embed_model_id: str = "amazon.titan-embed-text-v2:0"
+    embed_dimensions: int = 1024
+    rerank_model_arn: str | None = None
+    bedrock_timeout_s: float = 10.0
+
+    # Retrieval
+    retrieval_mode: Literal["vector", "hybrid"] = "hybrid"
+    retrieval_k: int = 20
+    rrf_k: int = 60
+    rerank_top_n: int = 6
+    min_relevance: float = 0.2
+
+    # Uploads
+    upload_dir: Path = _REPO_ROOT / "var" / "uploads"
+    max_upload_bytes: int = 5_242_880
+    max_pdf_pages: int = 10
+    jd_min_chars: int = 50
+    jd_max_chars: int = 20_000
+
+    @model_validator(mode="after")
+    def _require_anthropic_key(self) -> "Settings":
+        if self.llm_provider == "anthropic" and self.anthropic_api_key is None:
+            raise ValueError("ANTHROPIC_API_KEY is required when LLM_PROVIDER=anthropic")
+        return self
+
+    @model_validator(mode="after")
+    def _embed_dimensions_match_schema(self) -> "Settings":
+        if self.embed_dimensions != EMBEDDING_DIM:
+            raise ValueError(
+                f"EMBED_DIMENSIONS must be {EMBEDDING_DIM} to match the chunks.embedding column"
+            )
+        return self
+
+    @property
+    def effective_rerank_arn(self) -> str:
+        return (
+            self.rerank_model_arn
+            or f"arn:aws:bedrock:{self.aws_region}::foundation-model/amazon.rerank-v1:0"
+        )
 
 
 @lru_cache
