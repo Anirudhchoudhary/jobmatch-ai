@@ -96,7 +96,13 @@ build_and_push_image() {
   log "building and pushing $IMAGE_URI"
   # The password goes to docker on stdin only.
   awsr ecr get-login-password | docker login --username AWS --password-stdin "$REGISTRY" >/dev/null
-  docker build --platform linux/amd64 --provenance=false -t "$IMAGE_URI" "$REPO_ROOT/backend"
+  # BuildKit (buildx) adds an attestation manifest list that Lambda rejects, so turn it off;
+  # the legacy builder has no --provenance flag and already pushes a single-image manifest.
+  local build_flags=(--platform linux/amd64)
+  if docker buildx version >/dev/null 2>&1; then
+    build_flags+=(--provenance=false)
+  fi
+  docker build "${build_flags[@]}" -t "$IMAGE_URI" "$REPO_ROOT/backend"
   docker push "$IMAGE_URI"
 }
 
