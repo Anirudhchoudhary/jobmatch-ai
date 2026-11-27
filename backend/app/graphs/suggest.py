@@ -13,6 +13,7 @@ from uuid import UUID
 import structlog
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.analysis.analyst import Analyst
@@ -190,11 +191,16 @@ async def suggest(
         analyst=analyst.name,
         request_id=request_id_var.get(),
     )
-    async with sessionmaker() as session:
-        await save_suggestions(
-            session,
-            user_id=user_id,
-            analysis_id=analysis_id,
-            result=result.model_dump(mode="json", exclude={"request_id"}),
-        )
+    try:
+        async with sessionmaker() as session:
+            # Stored without request_id; the read endpoint adds the current one.
+            await save_suggestions(
+                session,
+                user_id=user_id,
+                analysis_id=analysis_id,
+                result=result.model_dump(mode="json", exclude={"request_id"}),
+            )
+    except SQLAlchemyError as exc:
+        # The LLM work is done; losing the saved copy must not fail the request.
+        log.warning("suggestions_persist_failed", error_type=type(exc).__name__)
     return result

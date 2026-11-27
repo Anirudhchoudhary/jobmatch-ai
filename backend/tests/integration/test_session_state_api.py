@@ -5,9 +5,10 @@ import httpx
 import pytest
 from sqlalchemy import select, text
 
+from app.analysis.repo import save_analysis
 from app.core.settings import get_settings
 from app.db.engine import get_engine, get_sessionmaker
-from app.db.models import Chunk, Document, SuggestionSet, User
+from app.db.models import Analysis, Chunk, Document, SuggestionSet, User
 from app.main import create_app
 from tests.integration.test_analyses_api import Env, engine, env  # noqa: F401
 
@@ -125,6 +126,34 @@ async def test_latest_suggestions_after_suggest(env: Env) -> None:  # noqa: F811
     assert body["analyst"] == posted["analyst"]
     assert body["request_id"] and body["request_id"] != posted["request_id"]
     assert await _usage_total(env) == before
+
+
+async def test_latest_is_newest_across_analysts(env: Env) -> None:  # noqa: F811
+    await env.samples()
+    first = (await env.analyse())[-1][1]
+    async with env.sm() as s:
+        older = (
+            await s.execute(select(Analysis).where(Analysis.id == first["analysis_id"]))
+        ).scalar_one()
+        newer_id = await save_analysis(
+            s,
+            user_id=env.user_id,
+            resume_doc_id=older.resume_doc_id,
+            jd_doc_id=older.jd_doc_id,
+            analyst="fake:newer",
+            result={**older.result, "analyst": "fake:newer"},
+        )
+    assert str(newer_id) != first["analysis_id"]
+    resp = await env.client.get("/api/analyses/latest")
+    assert resp.status_code == 200
+    assert resp.json()["analysis_id"] == str(newer_id)
+    assert resp.json()["analyst"] == "fake:newer"
+    assert (await env.client.get("/api/suggestions/latest")).status_code == 404
+    posted = (await env.client.post("/api/suggestions", json={})).json()
+    assert posted["analysis_id"] == str(newer_id)
+    got = await env.client.get("/api/suggestions/latest")
+    assert got.status_code == 200
+    assert got.json()["analysis_id"] == str(newer_id)
 
 
 async def test_suggestions_replaced_with_analysis_and_cascade(env: Env) -> None:  # noqa: F811

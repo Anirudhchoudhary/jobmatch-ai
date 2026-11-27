@@ -136,7 +136,11 @@ def _fake_sessionmaker() -> Any:
 
 
 async def _run_suggest(
-    monkeypatch: pytest.MonkeyPatch, drafts: list[SuggestionDraft], recorder: Any
+    monkeypatch: pytest.MonkeyPatch,
+    drafts: list[SuggestionDraft],
+    recorder: Any,
+    *,
+    save_error: Exception | None = None,
 ) -> UUID:
     src = chunk("Experience", 0, "Built Kafka pipelines for the data team")
     docs = LoadedDocuments(uuid4(), uuid4(), [src], [])
@@ -150,13 +154,14 @@ async def _run_suggest(
         return analysis_id, stored
 
     async def save_suggestions(session: object, **kwargs: object) -> None:
-        return None
+        if save_error is not None:
+            raise save_error
 
     monkeypatch.setattr(suggest_module, "load_documents", load_documents)
     monkeypatch.setattr(suggest_module, "save_suggestions", save_suggestions)
     monkeypatch.setattr(suggest_module, "latest_analysis", latest_analysis)
     user_id = uuid4()
-    await suggest(
+    result = await suggest(
         user_id=user_id,
         request=SuggestionRequest(),
         sessionmaker=_fake_sessionmaker,
@@ -164,6 +169,7 @@ async def _run_suggest(
         limit=5,
         recorder=recorder,
     )
+    assert result.analysis_id == analysis_id
     return user_id
 
 
@@ -192,3 +198,18 @@ async def test_no_rejection_records_nothing(monkeypatch: pytest.MonkeyPatch) -> 
     recorder = ListRecorder()
     await _run_suggest(monkeypatch, [], recorder)
     assert recorder.records == []
+
+
+async def test_persist_failure_still_returns_suggestions(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from sqlalchemy.exc import OperationalError
+
+    secret = "postgresql://user:hunter2@db/x"
+    await _run_suggest(
+        monkeypatch, [], ListRecorder(), save_error=OperationalError("stmt", {}, Exception(secret))
+    )
+    out = capsys.readouterr().out
+    assert "suggestions_persist_failed" in out
+    assert "OperationalError" in out
+    assert "hunter2" not in out
