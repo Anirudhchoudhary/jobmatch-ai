@@ -12,6 +12,7 @@ from app.core.errors import AppError
 from app.core.settings import get_settings
 from app.db.engine import get_sessionmaker
 from app.db.models import User
+from app.observability.usage import current_usage
 
 DEV_USER_ID = UUID("00000000-0000-4000-8000-000000000001")
 
@@ -29,4 +30,6 @@ async def get_current_user_id(session: Annotated[AsyncSession, Depends(get_sessi
         insert(User).values(id=DEV_USER_ID).on_conflict_do_nothing(index_elements=["id"])
     )
     await session.commit()
+    if (usage := current_usage()) is not None:
+        usage.user_id = DEV_USER_ID
     return DEV_USER_ID

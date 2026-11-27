@@ -24,6 +24,7 @@ from app.core.pii import warm_up
 from app.core.request_id import RequestIdMiddleware
 from app.core.settings import get_settings
 from app.db.engine import get_engine
+from app.observability.request_log import DbRequestLogWriter, RequestLogMiddleware
 
 
 def _log_level() -> str:
@@ -62,6 +63,8 @@ def create_app() -> FastAPI:
     # Runs at import time under uvicorn, after its dictConfig, so this override is intentional.
     configure_logging(_log_level(), pii_engine=_pii_engine())
     app = FastAPI(title="JobMatch AI", version=__version__, lifespan=lifespan)
+    # add_middleware stacks last-added outermost: the request id must be bound first.
+    app.add_middleware(RequestLogMiddleware, writer=DbRequestLogWriter())
     app.add_middleware(RequestIdMiddleware)
     install_error_handlers(app)
     app.include_router(health_router)
