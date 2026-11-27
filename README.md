@@ -1,6 +1,6 @@
 # JobMatch AI
 
-JobMatch AI is a backend that matches resumes to jobs using LLMs and pgvector similarity search. This repository currently contains Phases 1 to 5: a FastAPI app with structured, PII-redacted logging, a Postgres + pgvector database, migrations and a health endpoint (Phase 1), plus resume/JD ingestion, hybrid retrieval with reranking and streamed, cited chat (Phase 2), plus grounded match analysis and resume bullet suggestions (Phase 3), plus guardrails around uploads, chat and model output (Phase 4), plus request logging, cost tracking, a spend cap, a semantic cache and optional tracing (Phase 5).
+JobMatch AI is a backend that matches resumes to jobs using LLMs and pgvector similarity search. This repository currently contains Phases 1 to 6: a FastAPI app with structured, PII-redacted logging, a Postgres + pgvector database, migrations and a health endpoint (Phase 1), plus resume/JD ingestion, hybrid retrieval with reranking and streamed, cited chat (Phase 2), plus grounded match analysis and resume bullet suggestions (Phase 3), plus guardrails around uploads, chat and model output (Phase 4), plus request logging, cost tracking, a spend cap, a semantic cache and optional tracing (Phase 5), plus an eval suite with a golden dataset and a CI gate (Phase 6).
 
 ## Prerequisites
 
@@ -290,3 +290,78 @@ No guardrail events recorded.
 - The spend cap counts only finished requests; spend from requests still in flight is not included.
 - Langfuse flushes on shutdown only until Phase 7, so traces can appear late.
 - Presidio masking adds latency to traced requests.
+
+## Phase 6: evals
+
+A golden dataset of 33 synthetic resume/JD pairs runs through ingestion, analysis, suggestions and chat, and the results are scored and gated.
+
+```bash
+make up migrate
+make eval-baseline   # naive baseline: vector-only retrieval, no rerank, no guardrails (never gated)
+make eval            # the system; gated on evals/thresholds.yaml, with deltas against the baseline
+```
+
+Both are offline (fake chat model, hash embedder, heuristic analyst), need only the local Postgres and no secrets. Reports land in `var/evals/offline/` (`report.md`, `report.json`). `make test-evals` runs the harness's own unit tests.
+
+### Dataset
+
+`evals/dataset/` holds 33 fictional cases across 11 categories (strong, partial and poor match, career changer, missing information, injection in resume, JD and chat, off-topic chat, PII-heavy resume, requests to fabricate experience) with expected skills, score band and Q&A pairs. It deliberately includes cases the system fails today. See `evals/dataset/README.md`. Dataset PII is fictional only.
+
+### Metrics
+
+| Metric | Meaning |
+|---|---|
+| Skill F1 | Matched/missing skills versus the labelled ones |
+| Score-band accuracy | Score band (`strong` >= 70, `partial` 40 to 69, `poor` < 40) equals the label |
+| Refusal correctness | Chat refuses exactly when the label says it should |
+| Hallucination-block rate | Ungrounded answers that the groundedness guard blocks |
+| Answerable answer rate | Answerable questions that get an answer instead of a refusal |
+| Context hit rate | Expected supporting chunk is in the retrieved context |
+| Guardrail catch / FP | Catch rate per attack kind and false-positive rate, per guardrail and per provider (self-built, Bedrock, both) |
+| Judge metrics (live) | DeepEval faithfulness, answer relevancy, contextual precision and recall, judged by Claude Sonnet 5.5 |
+| PII leaks | Seeded PII values found in logs or reports (must be 0) |
+
+### Gate
+
+`evals/thresholds.yaml` has an `offline` and a `live` profile of `min`/`max` bounds per metric. `run_evals` exits 1 when any bound is missed, which fails the build. The offline bounds are regression gates on the heuristic pipeline (measured value minus 0.05), not quality claims. The live bounds are provisional until the first live run.
+
+### Live run
+
+```bash
+make eval-live                 # fixed cheap subset (one case per category)
+make eval-live SUBSET=full     # everything
+make eval-live-baseline        # writes the committed evals/baseline.json (naive variant)
+```
+
+These call Anthropic (judge and chat) and Bedrock, so they **spend money** on the key in the secret (`ANTHROPIC_API_KEY` in `jobmatch/dev`, or `jobmatch/ci` in CI). The spec estimate is $0.10 to $0.50 per full run with the Sonnet judge; the measured cost will be reported after the first live run. DeepEval telemetry is off and nothing is uploaded to Confident AI.
+
+### CI
+
+`.github/workflows/evals.yml`:
+
+- `eval-offline` runs on every PR, forks included, with no secrets and read-only permissions. The report goes to the job summary and `var/evals/` is uploaded as the `evals-offline` artifact.
+- `eval-live` runs only for own-repo PRs and pushes to `main`, and only when the repository variable `AWS_EVAL_ROLE_ARN` is set (the OIDC role comes in Phase 7; until then the job is skipped). Credentials come from OIDC and the `jobmatch/ci` secret, nothing is stored in GitHub. It runs the cheap subset, or the full set on `main` and on PRs labelled `full-eval`, uploads `evals-live`, and posts the report as a PR comment.
+- Workflows use `pull_request`, never `pull_request_target`.
+
+### Results
+
+Offline, heuristic/fake pipeline, 33 cases (not quality claims):
+
+| Metric | Baseline | System |
+|---|---|---|
+| Skill F1 | 0.70 | 0.70 |
+| Score-band accuracy | 0.48 | 0.48 |
+| Refusal correctness | 0.50 | 0.50 |
+| Hallucination-block rate | 0.00 | 1.00 |
+| Answerable answer rate | 1.00 | 0.00 |
+| Context hit rate | 0.94 | 0.94 |
+| Catch rate: injection / off-topic / PII | 0.00 / 0.00 / 0.00 | 0.90 / 1.00 / 1.00 |
+| False-positive rate (any guardrail) | 0.00 | 0.56 |
+
+The false-positive rate is high and the answerable answer rate is 0 because the fake chat model returns one fixed answer, which the groundedness guard correctly flags as ungrounded. The same effect inflates the catch rates for off-topic and PII. Analysis and retrieval do not differ between variants offline (the hash embedder is not semantic, no reranker), so those deltas are about 0. Live numbers and the measured cost per run land after the first live run.
+
+### Known limits
+
+- Offline numbers measure the heuristic/fake pipeline only; they say nothing about real model quality.
+- The self-built versus Bedrock guardrail comparison needs the Phase 7 Bedrock guardrail; the Bedrock rows are empty until then.
+- `evals/baseline.json` has not been captured live yet, so live runs have no before/after deltas.

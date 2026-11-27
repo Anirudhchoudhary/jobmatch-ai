@@ -1,0 +1,119 @@
+name: Evals
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: evals-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Runs on every PR, forks included: no secrets, no extra permissions.
+  eval-offline:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          # Non-secret dev-only values, same as docker-compose.yml
+          POSTGRES_USER: jobmatch
+          POSTGRES_PASSWORD: jobmatch
+          POSTGRES_DB: jobmatch
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U jobmatch"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql+psycopg://jobmatch:jobmatch@localhost:5432/jobmatch
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.13.10"
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - run: uv python install 3.12
+      - run: make install migrate
+      - run: make eval-baseline
+      - run: make eval
+      - name: Add report to job summary
+        if: always() && hashFiles('var/evals/offline/report.md') != ''
+        run: cat var/evals/offline/report.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: evals-offline
+          path: var/evals/
+          if-no-files-found: ignore
+
+  # Own-repo PRs and main only; credentials come from OIDC + Secrets Manager (jobmatch/ci).
+  # Skipped until the repository variable AWS_EVAL_ROLE_ARN exists (created in Phase 7).
+  eval-live:
+    if: >-
+      vars.AWS_EVAL_ROLE_ARN != '' &&
+      (github.event_name == 'push' ||
+      github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: jobmatch
+          POSTGRES_PASSWORD: jobmatch
+          POSTGRES_DB: jobmatch
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U jobmatch"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql+psycopg://jobmatch:jobmatch@localhost:5432/jobmatch
+      SECRETS_SOURCE: aws
+      SECRET_ID: jobmatch/ci
+      DEEPEVAL_TELEMETRY_OPT_OUT: "YES"
+      EVAL_SUBSET: ${{ (github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'full-eval')) && 'full' || 'ci' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_EVAL_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-west-2' }}
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.13.10"
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - run: uv python install 3.12
+      # Migrations only need the local DB, not the secret.
+      - run: SECRETS_SOURCE=env make install migrate
+      # `make eval-live` runs `uv run --group evals`, which installs the DeepEval group.
+      - run: make eval-live SUBSET="$EVAL_SUBSET"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: evals-live
+          path: var/evals/live
+          if-no-files-found: ignore
+      - name: Post report as PR comment
+        if: always() && github.event_name == 'pull_request' && hashFiles('var/evals/live/report.md') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh pr comment "$PR_NUMBER" --edit-last --body-file var/evals/live/report.md \
+            || gh pr comment "$PR_NUMBER" --body-file var/evals/live/report.md
