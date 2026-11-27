@@ -12,6 +12,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 from app.core.errors import ProviderError
 from app.llm.errors import log_provider_failure
+from app.observability.usage import record_cost
 
 _TOKEN = re.compile(r"[a-z0-9+#.]+")
 _MAX_CONCURRENCY = 4
@@ -78,12 +79,18 @@ class BedrockTitanEmbedder:
                 contentType="application/json",
                 accept="application/json",
             )
-            embedding: list[float] = json.loads(resp["body"].read())["embedding"]
+            body = json.loads(resp["body"].read())
+            embedding: list[float] = body["embedding"]
             if len(embedding) != self.dimensions:
                 raise ValueError("unexpected embedding length")
         except (ClientError, BotoCoreError, KeyError, TypeError, ValueError) as exc:
             log_provider_failure("bedrock", exc)
             raise ProviderError("bedrock") from None
+        tokens = body.get("inputTextTokenCount")
+        if isinstance(tokens, int):
+            record_cost(
+                "bedrock:titan", lambda s: tokens * s.bedrock_embed_usd_per_mtok / 1_000_000
+            )
         return embedding
 
     async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:

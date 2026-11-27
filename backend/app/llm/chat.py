@@ -10,6 +10,7 @@ from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage
 
 from app.core.settings import Settings
+from app.observability.usage import USAGE_CALLBACK
 
 FAKE_ANSWER = "(fake model) I can't answer without a real model [r1]."
 
@@ -37,5 +38,6 @@ def make_chat_model(
             max_retries=2,
             api_key=settings.anthropic_api_key,
             effort=effort,
+            callbacks=[USAGE_CALLBACK],
         )
     return GenericFakeChatModel(messages=_fake_replies())

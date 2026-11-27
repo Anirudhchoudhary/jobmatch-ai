@@ -9,6 +9,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.secrets import load_secret
 from app.db.models import EMBEDDING_DIM
+from app.llm.pricing import ModelPrice
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 ENV_FILE = _REPO_ROOT / ".env"
@@ -58,6 +59,15 @@ class Settings(_Bootstrap):
     embed_dimensions: int = 1024
     rerank_model_arn: str | None = None
     bedrock_timeout_s: float = 10.0
+
+    # Pricing (USD)
+    model_prices: dict[str, ModelPrice] = {
+        "claude-haiku-5-5": ModelPrice(input=0.10, output=0.50, cache_read=0.01, cache_write=0.125),
+        "claude-sonnet-5-5": ModelPrice(input=2.0, output=10.0, cache_read=0.10, cache_write=2.50),
+    }
+    bedrock_embed_usd_per_mtok: float = 0.02
+    bedrock_rerank_usd_per_query: float = 0.001
+    bedrock_guardrail_usd_per_unit: float = 0.00025
 
     # Retrieval
     retrieval_mode: Literal["vector", "hybrid"] = "hybrid"

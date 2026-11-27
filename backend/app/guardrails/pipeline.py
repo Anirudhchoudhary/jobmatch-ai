@@ -18,6 +18,7 @@ from app.guardrails.base import (
     Mode,
     Stage,
 )
+from app.observability.usage import current_usage
 
 log = structlog.get_logger(__name__)
 
@@ -79,6 +80,9 @@ async def record_outcome(
         reason=outcome.reason,
         item_count=len(outcome.items) or len(ctx.texts),
     )
+    usage = current_usage()
+    if usage is not None and outcome.action != "allow":
+        usage.add_guardrail(f"{outcome.guardrail}:{outcome.action}")
     try:
         await recorder.record(ctx, outcome)
     except Exception as exc:
