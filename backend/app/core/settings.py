@@ -104,6 +104,9 @@ class Settings(_Bootstrap):
     allowance_suggestions: int = 10
     burst_per_minute: int = 10
 
+    # Global backstop: refuse all requests once today's logged LLM cost reaches this (None = off)
+    daily_spend_cap_usd: float | None = 1.0
+
     @model_validator(mode="after")
     def _bedrock_guard_needs_numbered_version(self) -> "Settings":
         if self.guard_bedrock != "off" and (

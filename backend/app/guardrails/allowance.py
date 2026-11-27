@@ -13,11 +13,9 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.errors import AppError
-from app.core.request_id import request_id_var
 from app.core.settings import Settings
-from app.guardrails.base import GuardContext, GuardrailOutcome
-from app.guardrails.pipeline import record_outcome
-from app.guardrails.recorder import DbRecorder
+from app.guardrails.refusal import record_refusal
+from app.guardrails.spend import ensure_budget
 
 Kind = Literal["analyses", "uploads", "chats", "suggestions"]
 
@@ -102,23 +100,12 @@ async def consume_or_refuse(
     *,
     settings: Settings,
 ) -> None:
-    """``consume`` in its own session; a refusal is recorded as a guardrail event first."""
+    """Spend-cap check, then ``consume`` in its own session; a refusal is recorded first."""
+    await ensure_budget(sessionmaker, user_id, settings=settings)
     try:
         async with sessionmaker() as session:
             await consume(session, user_id, kind, settings=settings)
     except (QuotaExceeded, RateLimited) as exc:
-        outcome = GuardrailOutcome(
-            guardrail="allowance",
-            provider="self",
-            stage="chat_input",
-            action="block",
-            mode="enforce",
-            reason=f"quota:{kind}" if isinstance(exc, QuotaExceeded) else "burst",
-            latency_ms=0,
-            items=[],
-        )
-        ctx = GuardContext(
-            stage="chat_input", texts=(), request_id=request_id_var.get(), user_id=user_id
-        )
-        await record_outcome(DbRecorder(sessionmaker), ctx, outcome)
+        reason = f"quota:{kind}" if isinstance(exc, QuotaExceeded) else "burst"
+        await record_refusal(sessionmaker, user_id, "allowance", reason)
         raise
