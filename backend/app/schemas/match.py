@@ -122,5 +122,9 @@ class AnalysisProgress(BaseModel):
     ]
 
 
+class SuggestionProgress(BaseModel):
+    step: Literal["loading", "selecting", "rewriting", "validating"]
+
+
 class SuggestionRequest(BaseModel):
     analysis_id: UUID | None = None

@@ -76,3 +76,68 @@ async def test_suggestions_stale_analysis_after_replacement(env: Env) -> None:  
     resp = await env.client.post("/api/suggestions", json={})
     assert resp.status_code == 409
     assert resp.json()["error"]["code"] == "analysis_required"
+
+
+async def test_stream_suggestions_progress_then_done(env: Env) -> None:  # noqa: F811
+    await env.samples()
+    await env.analyse()
+    events = await env.stream("/api/stream/suggestions")
+    names = [n for n, _ in events]
+    assert names[-1] == "done"
+    steps = [d["step"] for n, d in events if n == "progress"]
+    assert steps == ["loading", "selecting", "rewriting", "validating"]
+    done = events[-1][1]
+    assert done["suggestions"]
+    assert done["rejected_count"] == 0
+    assert done["request_id"]
+    # The stored copy is what GET /api/suggestions/latest returns.
+    latest = await env.client.get("/api/suggestions/latest")
+    assert latest.status_code == 200
+    assert latest.json()["suggestions"] == done["suggestions"]
+
+
+async def test_stream_suggestions_without_analysis_is_an_sse_error(env: Env) -> None:  # noqa: F811
+    await env.samples()
+    events = await env.stream("/api/stream/suggestions")
+    assert events[-1][0] == "error"
+    assert events[-1][1]["code"] == "analysis_required"
+
+
+async def test_stream_suggestions_rejects_a_bad_body(env: Env) -> None:  # noqa: F811
+    resp = await env.client.post("/api/stream/suggestions", json={"analysis_id": "nope"})
+    assert resp.status_code == 422
+
+
+async def test_stream_suggestions_shares_the_daily_allowance(
+    env: Env,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.core.settings import get_settings
+
+    monkeypatch.setenv("ALLOWANCE_SUGGESTIONS", "1")
+    get_settings.cache_clear()
+    try:
+        await env.samples()
+        await env.analyse()
+        assert (await env.client.post("/api/suggestions", json={})).status_code == 200
+        resp = await env.client.post("/api/stream/suggestions", json={})
+        assert resp.status_code == 429
+        assert resp.json()["error"]["code"] == "quota_exceeded"
+    finally:
+        get_settings.cache_clear()
+
+
+async def test_stream_suggestions_at_capacity_returns_503(
+    env: Env,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.core.settings import get_settings
+
+    monkeypatch.setenv("DAILY_SPEND_CAP_USD", "0")
+    get_settings.cache_clear()
+    try:
+        resp = await env.client.post("/api/stream/suggestions", json={})
+        assert resp.status_code == 503
+        assert resp.json()["error"]["code"] == "demo_at_capacity"
+    finally:
+        get_settings.cache_clear()

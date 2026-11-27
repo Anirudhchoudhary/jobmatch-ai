@@ -53,6 +53,22 @@ describe("streamSse", () => {
     expect(init.body).toBe('{"question":"hi"}');
   });
 
+  it("ignores keep-alive comment blocks, alone or between events", async () => {
+    fetchMock.mockResolvedValue(
+      streamResponse([
+        ": keep-alive\n\n",
+        ev("progress", { step: "retrieving" }) + ": keep-alive\n\n",
+        ": keep-",
+        "alive\n\n" + ev("done", { answer: "x" }),
+      ]),
+    );
+    const events = await collect();
+    expect(events).toEqual([
+      ["progress", { step: "retrieving" }],
+      ["done", { answer: "x" }],
+    ]);
+  });
+
   it("reassembles events split across chunks mid-line", async () => {
     const full = ev("token", { text: "héllo" }) + ev("done", { answer: "héllo" });
     const bytes = encoder.encode(full);

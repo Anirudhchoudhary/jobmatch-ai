@@ -2,15 +2,17 @@
 
 The model rewrites selected bullets toward the JD's requirements; code drops any rewrite that
 introduces a number, term or quote not present in the source bullet (``validate_suggestions``).
-No DB session is held while the analyst runs.
+No DB session is held while the analyst runs. Nodes report progress through
+``get_stream_writer()``; ``suggestion_events`` streams it and ``suggest`` returns only the result.
 """
 
 import time
-from collections.abc import Sequence
-from typing import Any, TypedDict
+from collections.abc import AsyncIterator, Sequence
+from typing import Any, TypedDict, cast
 from uuid import UUID
 
 import structlog
+from langgraph.config import get_stream_writer
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from sqlalchemy.exc import SQLAlchemyError
@@ -32,6 +34,7 @@ from app.schemas.match import (
     Requirement,
     SkillMatch,
     SuggestionDraft,
+    SuggestionProgress,
     SuggestionRequest,
 )
 
@@ -57,6 +60,10 @@ class SuggestState(TypedDict):
 
 def _ms(start: float) -> int:
     return round((time.perf_counter() - start) * 1000)
+
+
+def _progress(step: str) -> None:
+    get_stream_writer()({"type": "progress", "step": step})
 
 
 def select_relevant_bullets(
@@ -98,12 +105,14 @@ def initial_state(resume: list[RetrievedChunk], skills: list[SkillMatch]) -> Sug
 
 def build_suggest_graph(analyst: Analyst, *, limit: int) -> SuggestGraph:
     async def select(state: SuggestState) -> dict[str, Any]:
+        _progress("selecting")
         targets = pick_targets(state["skills"])
         selected = select_relevant_bullets(state["resume"], targets, limit=limit)
         log.info("suggest_selected", selected_count=len(selected), target_count=len(targets))
         return {"targets": targets, "selected": selected, "labelled": label_context(selected)}
 
     async def rewrite(state: SuggestState) -> dict[str, Any]:
+        _progress("rewriting")
         if not state["selected"]:
             return {"drafts": []}
         start = time.perf_counter()
@@ -112,6 +121,7 @@ def build_suggest_graph(analyst: Analyst, *, limit: int) -> SuggestGraph:
         return {"drafts": drafts}
 
     async def validate(state: SuggestState) -> dict[str, Any]:
+        _progress("validating")
         # Guard against every requirement (missing ones included), not just the targets.
         every = [m.requirement for m in state["skills"]]
         kept, rejected = validate_suggestions(
@@ -147,7 +157,7 @@ def _analysis_not_found() -> AppError:
     return AppError("analysis_not_found", "Analysis not found.", 404)
 
 
-async def suggest(
+async def suggestion_events(
     *,
     user_id: UUID,
     request: SuggestionRequest,
@@ -155,8 +165,10 @@ async def suggest(
     analyst: Analyst,
     limit: int,
     recorder: GuardrailRecorder = _NULL_RECORDER,
-) -> BulletSuggestions:
+) -> AsyncIterator[tuple[str, SuggestionProgress | BulletSuggestions]]:
+    """``progress`` events then ``done`` (a ``BulletSuggestions``)."""
     start = time.perf_counter()
+    yield "progress", SuggestionProgress(step="loading")
     async with sessionmaker() as session:
         docs = await load_documents(session, user_id)
         analysis_id: UUID
@@ -173,12 +185,20 @@ async def suggest(
             analysis_id, stored = latest
 
     skills = [SkillMatch.model_validate(s) for s in stored["skills"]]
-    final = await build_suggest_graph(analyst, limit=limit).ainvoke(
-        initial_state(docs.resume, skills),
+    final = initial_state(docs.resume, skills)
+    async for mode, raw in build_suggest_graph(analyst, limit=limit).astream(
+        final,
         config=trace_config(
             name="suggestions", user_id=user_id, tags=["suggestions", f"analyst:{analyst.name}"]
         ),
-    )
+        stream_mode=["custom", "values"],
+    ):
+        if mode == "values":
+            final = cast(SuggestState, raw)
+            continue
+        part = cast(dict[str, Any], raw)
+        if part["type"] == "progress":
+            yield "progress", SuggestionProgress(step=part["step"])
     if final["rejected"] > 0:
         await record_hallucination_block(
             recorder, user_id, f"suggestions_rejected:{final['rejected']}"
@@ -203,4 +223,27 @@ async def suggest(
     except SQLAlchemyError as exc:
         # The LLM work is done; losing the saved copy must not fail the request.
         log.warning("suggestions_persist_failed", error_type=type(exc).__name__)
-    return result
+    yield "done", result
+
+
+async def suggest(
+    *,
+    user_id: UUID,
+    request: SuggestionRequest,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    analyst: Analyst,
+    limit: int,
+    recorder: GuardrailRecorder = _NULL_RECORDER,
+) -> BulletSuggestions:
+    """The same run as ``suggestion_events``, returning only the result."""
+    async for name, data in suggestion_events(
+        user_id=user_id,
+        request=request,
+        sessionmaker=sessionmaker,
+        analyst=analyst,
+        limit=limit,
+        recorder=recorder,
+    ):
+        if name == "done":
+            return cast(BulletSuggestions, data)
+    raise AssertionError("suggestion_events ended without done")  # pragma: no cover

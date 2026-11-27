@@ -54,6 +54,9 @@ class Settings(_Bootstrap):
     suggest_max_bullets: int = 5
     llm_timeout_s: float = 30.0
     structured_timeout_s: float = 120.0
+    # SSE comment sent when a stream has been silent this long; CloudFront drops an origin
+    # response after 60 s without bytes.
+    sse_keepalive_s: float = 15.0
 
     # Bedrock
     embed_model_id: str = "amazon.titan-embed-text-v2:0"

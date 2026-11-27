@@ -4,14 +4,23 @@ import { useEffect, useState } from "react";
 import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { apiGet, apiPost, ApiError, GENERIC_ERROR_MESSAGE } from "@/lib/api";
+import { apiGet, ApiError, GENERIC_ERROR_MESSAGE } from "@/lib/api";
+import { streamSse } from "@/lib/sse";
 import type { BulletSuggestions } from "@/lib/types";
+
+const STEP_LABELS: Record<string, string> = {
+  loading: "Loading your analysis",
+  selecting: "Choosing bullets to improve",
+  rewriting: "Rewriting bullets",
+  validating: "Checking rewrites against your resume",
+};
 
 /** Restores stored rewrites on mount; "Suggest rewrites" spends a daily allowance. */
 export function Suggestions() {
   const [result, setResult] = useState<BulletSuggestions | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [step, setStep] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -31,12 +40,19 @@ export function Suggestions() {
   async function generate() {
     setBusy(true);
     setError(null);
+    setStep(null);
     try {
-      setResult(await apiPost<BulletSuggestions>("/api/suggestions", {}));
+      let fresh: BulletSuggestions | null = null;
+      await streamSse("/api/stream/suggestions", {}, (name, data) => {
+        if (name === "progress") setStep((data as { step: string }).step);
+        else if (name === "done") fresh = data as BulletSuggestions;
+      });
+      if (fresh) setResult(fresh);
     } catch (e) {
       setError(e instanceof Error && e.message ? e.message : GENERIC_ERROR_MESSAGE);
     } finally {
       setBusy(false);
+      setStep(null);
     }
   }
 
@@ -55,6 +71,11 @@ export function Suggestions() {
           {result ? "Suggest again" : "Suggest rewrites"}
         </Button>
       </div>
+      {busy && step ? (
+        <p role="status" className="text-sm font-medium">
+          … {STEP_LABELS[step] ?? "Working"}
+        </p>
+      ) : null}
       {error ? <Alert>{error}</Alert> : null}
       {result ? (
         <>
