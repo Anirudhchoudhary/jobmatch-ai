@@ -1,14 +1,16 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { Documents } from "@/components/Documents";
 import { useSession } from "@/lib/session";
 
 export default function Workspace() {
   const router = useRouter();
   const { user, loading, signOut } = useSession();
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     // Static export has no server redirects, so signed-out visitors are sent home on the client.
@@ -36,9 +38,12 @@ export default function Workspace() {
           </Button>
         </div>
       </header>
-      <Card className="mt-6">
-        <p className="text-muted">Your workspace is ready. Document upload and analysis arrive next.</p>
-      </Card>
+      <Documents onReady={() => setReady(true)} />
+      {ready ? (
+        <Card className="mt-4">
+          <p role="status">Ready. Both documents are loaded; analysis arrives next.</p>
+        </Card>
+      ) : null}
     </main>
   );
 }

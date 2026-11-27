@@ -149,4 +149,11 @@ describe("streamSse", () => {
     await streamSse("/api/x", {}, () => {}, controller.signal);
     expect(fetchMock.mock.calls[0][1].signal).toBe(controller.signal);
   });
+
+  it("waits for the requested number of done events", async () => {
+    fetchMock.mockResolvedValue(streamResponse([ev("done", { n: 1 }), ev("progress", { s: 1 }), ev("done", { n: 2 })]));
+    const events: string[] = [];
+    await streamSse("/api/samples", {}, (n) => events.push(n), undefined, 2);
+    expect(events).toEqual(["done", "progress", "done"]);
+  });
 });

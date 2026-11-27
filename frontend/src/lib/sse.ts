@@ -27,7 +27,7 @@ function parseBlock(block: string): { name: string; data: unknown } | null {
 
 /**
  * POST `body` as JSON and read the SSE response, calling `onEvent` per event.
- * Resolves after a `done` event; rejects with ApiError on an `error` event, a non-2xx
+ * Resolves after `doneCount` `done` events (default 1; the sample stream ingests two documents); rejects with ApiError on an `error` event, a non-2xx
  * response, or a body that ends without `done` or `error`.
  */
 export async function streamSse(
@@ -35,6 +35,7 @@ export async function streamSse(
   body: unknown,
   onEvent: (name: string, data: unknown) => void,
   signal?: AbortSignal,
+  doneCount = 1,
 ): Promise<void> {
   const res = await fetch(path, {
     method: "POST",
@@ -50,6 +51,7 @@ export async function streamSse(
   const decoder = new TextDecoder();
   let buffer = "";
   let finished = false;
+  let dones = 0;
 
   const dispatch = (block: string): void => {
     const parsed = parseBlock(block);
@@ -64,7 +66,7 @@ export async function streamSse(
       );
     }
     onEvent(parsed.name, parsed.data);
-    if (parsed.name === "done") finished = true;
+    if (parsed.name === "done" && ++dones >= doneCount) finished = true;
   };
 
   try {
