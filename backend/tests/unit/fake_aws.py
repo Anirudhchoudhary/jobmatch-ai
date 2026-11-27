@@ -9,12 +9,19 @@ Knobs: $FAKE_AWS_FAIL_ON (comma-separated "service command" pairs that fail with
 AccessDenied, or with an account-limit error for put-function-concurrency) and
 $FAKE_AWS_ROLE_NOT_READY (create-function/create-schedule fail that many times with the
 "role cannot be assumed" error first), $FAKE_AWS_EXTRA_TAGGED (comma-separated ARNs that
-get-resources always lists).
+get-resources always lists), $FAKE_AWS_ACM_PENDING (certificates never validate).
+
+Global services: CloudFront and Route 53 (any --region; the scripts use us-east-1) and ACM in
+us-east-1 only (CloudFront certificates). Route 53 hosted zones are only ever read or have
+record sets changed: there is deliberately no create/delete-hosted-zone here, so a script that
+calls either fails loudly.
 """
 
+import fnmatch
 import json
 import os
 import sys
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +33,7 @@ BOOLEAN_FLAGS = {
     "--no-invoked-via-function-url",
     "--force-delete-without-recovery",
     "--no-cli-pager",
+    "--only-show-errors",
 }
 EMPTY_WORLD: dict[str, Any] = {
     "ecr": [],
@@ -36,8 +44,19 @@ EMPTY_WORLD: dict[str, Any] = {
     "schedules": [],
     "budgets": [],
     "secrets": [],
+    "secret_values": {},
+    "bucket_cors": {},
+    "bucket_policies": {},
+    "certificates": {},
+    "cf_oacs": {},
+    "cf_functions": {},
+    "cf_distributions": {},
+    "cf_invalidations": [],
+    "hosted_zones": {},
     "counters": {},
 }
+EDGE_REGION = "us-east-1"
+CLOUDFRONT_ZONE_ID = "Z2FDTNDATAQYW2"
 
 
 class AwsError(Exception):
@@ -58,8 +77,9 @@ def parse_flags(args: list[str]) -> dict[str, Any]:
             i += 1
             continue
         value = args[i + 1]
-        if value.startswith("file://"):
-            value = Path(value.removeprefix("file://")).read_text()
+        for prefix in ("file://", "fileb://"):
+            if value.startswith(prefix):
+                value = Path(value.removeprefix(prefix)).read_text()
         flags[arg] = value
         i += 2
     return flags
@@ -73,12 +93,358 @@ def lambda_arn(name: str) -> str:
     return f"arn:aws:lambda:{REGION}:{ACCOUNT}:function:{name}"
 
 
+def new_etag(obj: dict[str, Any]) -> str:
+    obj["etag"] = "E" + uuid.uuid4().hex[:12].upper()
+    return str(obj["etag"])
+
+
+def check_etag(obj: dict[str, Any], f: dict[str, Any], op: str) -> None:
+    if f.get("--if-match") != obj["etag"]:
+        raise AwsError("PreconditionFailed", op, "The If-Match version is missing or not valid.")
+
+
+def record_key(name: str) -> tuple[list[str], str]:
+    return list(reversed(name.rstrip(".").split("."))), name
+
+
+def handle_route53(world: dict[str, Any], cmd: str, f: dict[str, Any]) -> Any:
+    zones = world["hosted_zones"]
+    if cmd == "list-hosted-zones-by-name":
+        start = f.get("--dns-name", "")
+        listed = sorted(
+            (z for z in zones.items() if z[1]["Name"] >= start), key=lambda z: (z[1]["Name"], z[0])
+        )
+        return {
+            "HostedZones": [
+                {
+                    "Id": f"/hostedzone/{zid}",
+                    "Name": z["Name"],
+                    "Config": {"PrivateZone": z["Private"]},
+                }
+                for zid, z in listed
+            ]
+        }
+    zid = f["--hosted-zone-id"].removeprefix("/hostedzone/")
+    if zid not in zones:
+        raise AwsError("NoSuchHostedZone", cmd, f"No hosted zone found with ID: {zid}")
+    records: list[dict[str, Any]] = zones[zid]["records"]
+    if cmd == "list-resource-record-sets":
+        ordered = sorted(records, key=lambda r: (record_key(r["Name"]), r["Type"]))
+        start = f.get("--start-record-name")
+        if start:
+            start_key = (record_key(start), f.get("--start-record-type", ""))
+            ordered = [r for r in ordered if (record_key(r["Name"]), r["Type"]) >= start_key]
+        if "--max-items" in f:
+            ordered = ordered[: int(f["--max-items"])]
+        return {"ResourceRecordSets": ordered}
+    if cmd == "change-resource-record-sets":
+        batch = json.loads(f["--change-batch"])
+        work = [dict(r) for r in records]
+        for change in batch["Changes"]:
+            rrs = change["ResourceRecordSet"]
+            if not rrs["Name"].endswith("."):
+                raise AwsError("InvalidInput", cmd, "names must be fully qualified")
+            same = [r for r in work if r["Name"] == rrs["Name"] and r["Type"] == rrs["Type"]]
+            action = change["Action"]
+            if action == "CREATE" and same:
+                raise AwsError("InvalidChangeBatch", cmd, "record set already exists")
+            if action == "DELETE":
+                if not same or same[0] != rrs:
+                    raise AwsError(
+                        "InvalidChangeBatch",
+                        cmd,
+                        "Tried to delete resource record set but it was not found, or the "
+                        "values provided do not match the current values",
+                    )
+                work.remove(same[0])
+                continue
+            if any(
+                r["Name"] == rrs["Name"] and "CNAME" in (r["Type"], rrs["Type"])
+                for r in work
+                if r not in same
+            ):
+                raise AwsError("InvalidChangeBatch", cmd, "CNAME conflicts with another record")
+            for r in same:
+                work.remove(r)
+            work.append(rrs)
+        zones[zid]["records"] = work
+        change_id = "C" + uuid.uuid4().hex[:12].upper()
+        return {"ChangeInfo": {"Id": f"/change/{change_id}", "Status": "PENDING"}}
+    raise SystemExit(f"fake aws: unhandled command 'route53 {cmd}'")
+
+
+def validation_record(arn: str) -> dict[str, str]:
+    token = arn.rsplit("/", 1)[-1].replace("-", "")
+    return {
+        "Name": f"_{token}.jobmatch.ntrye.com.",
+        "Type": "CNAME",
+        "Value": f"_{token[::-1]}.xyz.acm-validations.aws.",
+    }
+
+
+def certificate_status(world: dict[str, Any], arn: str) -> str:
+    if os.environ.get("FAKE_AWS_ACM_PENDING"):
+        return "PENDING_VALIDATION"
+    want = validation_record(arn)
+    for zone in world["hosted_zones"].values():
+        if zone["Private"]:
+            continue
+        for r in zone["records"]:
+            values = [v["Value"] for v in r.get("ResourceRecords", [])]
+            if r["Name"] == want["Name"] and r["Type"] == "CNAME" and values == [want["Value"]]:
+                return "ISSUED"
+    return "PENDING_VALIDATION"
+
+
+def handle_acm(world: dict[str, Any], cmd: str, f: dict[str, Any]) -> Any:
+    if f.get("--region") != EDGE_REGION:
+        raise AwsError("ValidationException", cmd, "CloudFront certificates must be in us-east-1")
+    certs = world["certificates"]
+    if cmd == "request-certificate":
+        if f.get("--validation-method") != "DNS":
+            raise AwsError("ValidationException", cmd, "expected DNS validation")
+        arn = f"arn:aws:acm:{EDGE_REGION}:{ACCOUNT}:certificate/{uuid.uuid4()}"
+        certs[arn] = {"domain": f["--domain-name"], "tags": f.get("--tags", ""), "described": 0}
+        return {"CertificateArn": arn}
+    if cmd == "list-certificates":
+        return {
+            "CertificateSummaryList": [
+                {"CertificateArn": a, "DomainName": c["domain"]} for a, c in certs.items()
+            ]
+        }
+    arn = f["--certificate-arn"]
+    if arn not in certs:
+        raise AwsError("ResourceNotFoundException", cmd, f"Could not find certificate {arn}.")
+    cert = certs[arn]
+    if cmd == "describe-certificate":
+        cert["described"] += 1
+        option: dict[str, Any] = {"DomainName": cert["domain"], "ValidationMethod": "DNS"}
+        if cert["described"] > 1:  # like ACM, the record appears a moment after the request
+            option["ResourceRecord"] = validation_record(arn)
+        return {
+            "Certificate": {
+                "CertificateArn": arn,
+                "DomainName": cert["domain"],
+                "Status": certificate_status(world, arn),
+                "DomainValidationOptions": [option],
+            }
+        }
+    if cmd == "list-tags-for-certificate":
+        tags = []
+        for part in [p for p in cert["tags"].split(" ") if p]:
+            kv = dict(item.split("=", 1) for item in part.split(","))
+            tags.append({"Key": kv["Key"], "Value": kv["Value"]})
+        return {"Tags": tags}
+    if cmd == "delete-certificate":
+        for dist in world["cf_distributions"].values():
+            if dist["config"]["ViewerCertificate"].get("ACMCertificateArn") == arn:
+                raise AwsError("ResourceInUseException", cmd, f"Certificate {arn} in use.")
+        del certs[arn]
+        return None
+    raise SystemExit(f"fake aws: unhandled command 'acm {cmd}'")
+
+
+def validate_distribution(world: dict[str, Any], cfg: dict[str, Any], op: str) -> None:
+    arn = cfg["ViewerCertificate"].get("ACMCertificateArn")
+    if arn not in world["certificates"] or certificate_status(world, arn) != "ISSUED":
+        raise AwsError("InvalidViewerCertificate", op, "The certificate is not valid.")
+    for origin in cfg["Origins"]["Items"]:
+        oac = origin.get("OriginAccessControlId")
+        if oac and oac not in world["cf_oacs"]:
+            raise AwsError("NoSuchOriginAccessControl", op, "The OAC does not exist.")
+    for assoc in cfg["DefaultCacheBehavior"].get("FunctionAssociations", {}).get("Items", []):
+        name = assoc["FunctionARN"].rsplit("/", 1)[-1]
+        fn = world["cf_functions"].get(name)
+        if not fn or not fn["published"]:
+            raise AwsError("NoSuchFunctionExists", op, "The function is not published.")
+
+
+def distribution_view(dist_id: str, dist: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "Id": dist_id,
+        "ARN": f"arn:aws:cloudfront::{ACCOUNT}:distribution/{dist_id}",
+        "DomainName": f"{dist_id.lower()}.cloudfront.net",
+        "Status": dist["status"],
+        "DistributionConfig": dist["config"],
+    }
+
+
+def handle_cloudfront(world: dict[str, Any], cmd: str, f: dict[str, Any]) -> Any:  # noqa: C901
+    oacs, fns, dists = world["cf_oacs"], world["cf_functions"], world["cf_distributions"]
+    # ---- origin access controls
+    if cmd == "list-origin-access-controls":
+        items = [{"Id": i, "Name": o["config"]["Name"]} for i, o in oacs.items()]
+        return {"OriginAccessControlList": {"Quantity": len(items), "Items": items or None}}
+    if cmd == "create-origin-access-control":
+        cfg = json.loads(f["--origin-access-control-config"])
+        if any(o["config"]["Name"] == cfg["Name"] for o in oacs.values()):
+            raise AwsError("OriginAccessControlAlreadyExists", cmd, "exists")
+        oac_id = "E" + uuid.uuid4().hex[:13].upper()
+        oacs[oac_id] = {"config": cfg}
+        etag = new_etag(oacs[oac_id])
+        return {
+            "OriginAccessControl": {"Id": oac_id, "OriginAccessControlConfig": cfg},
+            "ETag": etag,
+        }
+    if cmd in ("get-origin-access-control", "delete-origin-access-control"):
+        oac_id = f["--id"]
+        if oac_id not in oacs:
+            raise AwsError(
+                "NoSuchOriginAccessControl", cmd, "The origin access control does not exist."
+            )
+        if cmd == "get-origin-access-control":
+            o = oacs[oac_id]
+            return {
+                "OriginAccessControl": {"Id": oac_id, "OriginAccessControlConfig": o["config"]},
+                "ETag": o["etag"],
+            }
+        check_etag(oacs[oac_id], f, cmd)
+        for dist in dists.values():
+            if any(
+                o.get("OriginAccessControlId") == oac_id for o in dist["config"]["Origins"]["Items"]
+            ):
+                raise AwsError("OriginAccessControlInUse", cmd, "in use by a distribution")
+        del oacs[oac_id]
+        return None
+    # ---- CloudFront Functions
+    if cmd in (
+        "create-function",
+        "describe-function",
+        "update-function",
+        "publish-function",
+        "delete-function",
+    ):
+        name = f["--name"]
+        arn = f"arn:aws:cloudfront::{ACCOUNT}:function/{name}"
+        if cmd == "create-function":
+            if name in fns:
+                raise AwsError("FunctionAlreadyExists", cmd, "exists")
+            json.loads(f["--function-config"])
+            fns[name] = {"code": f["--function-code"], "published": False}
+            etag = new_etag(fns[name])
+            return {
+                "FunctionSummary": {"Name": name, "FunctionMetadata": {"FunctionARN": arn}},
+                "ETag": etag,
+            }
+        if name not in fns:
+            raise AwsError("NoSuchFunctionExists", cmd, "The function does not exist.")
+        fn = fns[name]
+        if cmd == "describe-function":
+            return {
+                "FunctionSummary": {"Name": name, "FunctionMetadata": {"FunctionARN": arn}},
+                "ETag": fn["etag"],
+            }
+        check_etag(fn, f, cmd)
+        if cmd == "update-function":
+            fn["code"] = f["--function-code"]
+            json.loads(f["--function-config"])
+        elif cmd == "publish-function":
+            fn["published"] = True
+        else:  # delete-function
+            for dist in dists.values():
+                items = dist["config"]["DefaultCacheBehavior"].get("FunctionAssociations", {})
+                if any(a["FunctionARN"] == arn for a in items.get("Items", [])):
+                    raise AwsError("FunctionInUse", cmd, "associated with a distribution")
+            del fns[name]
+            return None
+        etag = new_etag(fn)
+        return {
+            "FunctionSummary": {"Name": name, "FunctionMetadata": {"FunctionARN": arn}},
+            "ETag": etag,
+        }
+    # ---- distributions
+    if cmd == "list-distributions":
+        items = [
+            {
+                **{k: v for k, v in distribution_view(i, d).items() if k != "DistributionConfig"},
+                "Comment": d["config"]["Comment"],
+                "Aliases": d["config"]["Aliases"],
+            }
+            for i, d in dists.items()
+        ]
+        return {"DistributionList": {"Quantity": len(items), "Items": items or None}}
+    if cmd == "create-distribution-with-tags":
+        payload = json.loads(f["--distribution-config-with-tags"])
+        cfg = payload["DistributionConfig"]
+        validate_distribution(world, cfg, "CreateDistributionWithTags")
+        for d in dists.values():
+            if set(d["config"]["Aliases"].get("Items", [])) & set(cfg["Aliases"]["Items"]):
+                raise AwsError("CNAMEAlreadyExists", cmd, "alias in use")
+        dist_id = "E" + uuid.uuid4().hex[:13].upper()
+        dists[dist_id] = {"config": cfg, "status": "InProgress", "tags": payload["Tags"]}
+        etag = new_etag(dists[dist_id])
+        return {"Distribution": distribution_view(dist_id, dists[dist_id]), "ETag": etag}
+    if cmd == "create-invalidation":
+        dist_id = f["--distribution-id"]
+        if dist_id not in dists:
+            raise AwsError("NoSuchDistribution", cmd, "The specified distribution does not exist.")
+        inv_id = "I" + uuid.uuid4().hex[:12].upper()
+        world["cf_invalidations"].append({"distribution": dist_id, "paths": f.get("--paths")})
+        return {"Invalidation": {"Id": inv_id, "Status": "InProgress"}}
+    dist_id = f["--id"]
+    if dist_id not in dists:
+        raise AwsError("NoSuchDistribution", cmd, "The specified distribution does not exist.")
+    dist = dists[dist_id]
+    if cmd == "wait":  # distribution-deployed
+        dist["status"] = "Deployed"
+        return None
+    if cmd == "get-distribution":
+        return {"Distribution": distribution_view(dist_id, dist), "ETag": dist["etag"]}
+    if cmd == "get-distribution-config":
+        return {"DistributionConfig": dist["config"], "ETag": dist["etag"]}
+    check_etag(dist, f, cmd)
+    if cmd == "update-distribution":
+        cfg = json.loads(f["--distribution-config"])
+        if cfg["CallerReference"] != dist["config"]["CallerReference"]:
+            raise AwsError("IllegalUpdate", cmd, "CallerReference cannot change")
+        if cfg["Enabled"]:
+            validate_distribution(world, cfg, "UpdateDistribution")
+        dist["config"], dist["status"] = cfg, "InProgress"
+        etag = new_etag(dist)
+        return {"Distribution": distribution_view(dist_id, dist), "ETag": etag}
+    if cmd == "delete-distribution":
+        if dist["config"]["Enabled"] or dist["status"] != "Deployed":
+            raise AwsError(
+                "DistributionNotDisabled", cmd, "The distribution must be disabled and deployed."
+            )
+        del dists[dist_id]
+        return None
+    raise SystemExit(f"fake aws: unhandled command 'cloudfront {cmd}'")
+
+
+def handle_s3_sync(world: dict[str, Any], args: list[str], delete: bool) -> None:
+    """`aws s3 sync <dir> s3://bucket[/prefix] [--delete] [--exclude p] [--cache-control v]`."""
+    src, dest, *rest = args
+    flags = parse_flags(rest)
+    bucket, _, prefix = dest.removeprefix("s3://").partition("/")
+    if bucket not in world["buckets"]:
+        raise AwsError("NoSuchBucket", "ListObjectsV2", "The specified bucket does not exist")
+    prefix = prefix.rstrip("/") + "/" if prefix else ""
+    exclude = flags.get("--exclude")
+    local = sorted(prefix + str(p.relative_to(src)) for p in Path(src).rglob("*") if p.is_file())
+    local = [k for k in local if not (exclude and fnmatch.fnmatch(k, exclude))]
+    keys: list[str] = world["buckets"][bucket]
+    if delete:
+        keys[:] = [
+            k
+            for k in keys
+            if not k.startswith(prefix) or k in local or (exclude and fnmatch.fnmatch(k, exclude))
+        ]
+    keys.extend(k for k in local if k not in keys)
+
+
 def handle(world: dict[str, Any], svc: str, cmd: str, f: dict[str, Any]) -> Any:  # noqa: C901
     key = f"{svc} {cmd}"
     counters = world["counters"]
 
     if key == "sts get-caller-identity":
         return {"Account": ACCOUNT, "Arn": f"arn:aws:iam::{ACCOUNT}:user/dev", "UserId": "X"}
+    if svc == "route53":
+        return handle_route53(world, cmd, f)
+    if svc == "acm":
+        return handle_acm(world, cmd, f)
+    if svc == "cloudfront":
+        return handle_cloudfront(world, cmd, f)
 
     # ---- ECR
     if svc == "ecr":
@@ -127,6 +493,17 @@ def handle(world: dict[str, Any], svc: str, cmd: str, f: dict[str, Any]) -> Any:
             if buckets[bucket]:
                 raise AwsError("BucketNotEmpty", cmd, "The bucket you tried to delete is not empty")
             del buckets[bucket]
+            world["bucket_cors"].pop(bucket, None)
+            world["bucket_policies"].pop(bucket, None)
+            return None
+        if cmd == "put-bucket-cors":
+            world["bucket_cors"][bucket] = json.loads(f["--cors-configuration"])
+            return None
+        if cmd == "delete-bucket-cors":  # S3 answers 204 even when there is none
+            world["bucket_cors"].pop(bucket, None)
+            return None
+        if cmd == "put-bucket-policy":
+            world["bucket_policies"][bucket] = json.loads(f["--policy"])
             return None
         if cmd in (
             "head-bucket",
@@ -306,8 +683,17 @@ def handle(world: dict[str, Any], svc: str, cmd: str, f: dict[str, Any]) -> Any:
                 "Name": sid,
                 "ARN": f"arn:aws:secretsmanager:{REGION}:{ACCOUNT}:secret:{sid}-AbCdEf",
             }
+        if cmd == "get-secret-value":
+            return {"Name": sid, "SecretString": world["secret_values"].get(sid, "{}")}
+        if cmd == "put-secret-value":
+            value = f["--secret-string"]
+            if not isinstance(json.loads(value), dict):
+                raise AwsError("InvalidParameterException", cmd, "not a JSON object")
+            world["secret_values"][sid] = value
+            return {"Name": sid, "VersionId": "v2"}
         if cmd == "delete-secret":
             world["secrets"].remove(sid)
+            world["secret_values"].pop(sid, None)
             return {"Name": sid}
 
     # ---- Resource Groups Tagging API (regional; IAM, budgets and schedules are not listed)
@@ -347,6 +733,12 @@ def main(argv: list[str]) -> int:
     svc, cmd, *rest = argv
     if cmd == "wait":
         rest = rest[1:]  # the waiter name, e.g. function-active-v2
+    positional: list[str] = []
+    if (svc, cmd) == ("s3", "sync"):
+        positional, rest = rest[:2], rest[2:]
+    sync_delete = "--delete" in rest  # a boolean for `s3 sync`, a JSON file for s3api
+    if (svc, cmd) == ("s3", "sync"):
+        rest = [a for a in rest if a != "--delete"]
     flags = parse_flags(rest)
     if flags.get("--region") is None:
         print("fake aws: every call must pass --region", file=sys.stderr)
@@ -364,7 +756,11 @@ def main(argv: list[str]) -> int:
                     "UnreservedConcurrentExecution below its minimum value of [10].",
                 )
             raise AwsError("AccessDeniedException", cmd, "injected failure")
-        result = handle(world, svc, cmd, flags)
+        if (svc, cmd) == ("s3", "sync"):
+            handle_s3_sync(world, positional + rest, sync_delete)
+            result = None
+        else:
+            result = handle(world, svc, cmd, flags)
     except AwsError as err:
         print(
             f"\nAn error occurred ({err.code}) when calling the {err.op} operation: {err.message}",

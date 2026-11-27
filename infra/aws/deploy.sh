@@ -4,8 +4,12 @@
 #
 # Every step is idempotent (describe, create only if missing) and records each resource it
 # creates in the state file right after creating it, so `make teardown` can always remove
-# everything, even after a failed run. Needs BUDGET_EMAIL (never stored) and an existing
-# jobmatch/prod secret (`make secrets-set`). Never prints secret values; xtrace is forbidden.
+# everything, even after a failed run. Needs BUDGET_EMAIL (never stored), an existing
+# jobmatch/prod secret (`make secrets-set`) and the hand-made public Route 53 zone ntrye.com.
+# (never created, deleted or changed here except the jobmatch.ntrye.com records).
+# Never prints secret values; xtrace is forbidden. Files holding secret material (the secret
+# JSON, CloudFront distribution configs with the origin token) live only in a private temp
+# directory that is removed on exit.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -16,12 +20,28 @@ source "$HERE/lib.sh"
 
 RETRY_SLEEP="${DEPLOY_RETRY_SLEEP:-10}"
 RETRY_ATTEMPTS=8
+ACM_TIMEOUT_S="${DEPLOY_ACM_TIMEOUT_S:-$ACM_VALIDATION_TIMEOUT_S}"
+ACM_POLL_SLEEP="${DEPLOY_ACM_POLL_SLEEP:-30}"
 
 [[ -n "${BUDGET_EMAIL:-}" ]] || die "BUDGET_EMAIL must be set to the address for AWS Budgets alerts"
-require_tools aws docker jq git
+require_tools aws docker jq git python3
+
+umask 077
+WORK_DIR="$(mktemp -d)"
+trap 'rm -rf "$WORK_DIR"' EXIT
+SECRET_FILE="$WORK_DIR/secret.json"
+TOKEN_ADDED=false
+ZONE_ID=""
+CERT_ARN=""
+OAC_ID=""
+SITE_FUNCTION_ARN=""
+DISTRIBUTION_ID=""
+DISTRIBUTION_ARN=""
+DISTRIBUTION_DOMAIN=""
 
 ACCOUNT_ID="$(awsr sts get-caller-identity --query Account --output text)"
 BUCKET="$BUCKET_PREFIX-$ACCOUNT_ID"
+SITE_BUCKET="$SITE_BUCKET_PREFIX-$ACCOUNT_ID"
 REGISTRY="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com"
 IMAGE_TAG="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"
 IMAGE_URI="$REGISTRY/$ECR_REPO:$IMAGE_TAG"
@@ -54,8 +74,47 @@ check_prerequisites() {
   fi
   resource_exists awsr secretsmanager describe-secret --secret-id "$SECRET_ID" ||
     die "secret $SECRET_ID does not exist: run make secrets-set first"
+  ZONE_ID=$(hosted_zone_id) || die "could not look up the Route 53 hosted zone $HOSTED_ZONE"
+  [[ -n "$ZONE_ID" ]] ||
+    die "no public Route 53 hosted zone named $HOSTED_ZONE (it is made by hand, never by deploy)"
+  # Fail before creating anything if the site's name already holds records deploy did not make.
+  local type current
+  for type in A AAAA; do
+    current=$(record_get "$ZONE_ID" "$DOMAIN." "$type") || die "could not read the $DOMAIN records"
+    foreign_record_guard "$type" "$current"
+  done
   if [[ -n "$(git -C "$REPO_ROOT" status --porcelain)" ]]; then
     warn "working tree has uncommitted changes; the image tag $IMAGE_TAG will not match them"
+  fi
+}
+
+# foreign_record_guard <type> <current record set JSON or empty>: die unless the record is
+# absent or a CloudFront alias (which only deploy makes at this name).
+foreign_record_guard() {
+  local target
+  [[ -z "$2" ]] && return 0
+  target=$(jq -r '.AliasTarget.HostedZoneId // empty' <<<"$2")
+  [[ "$target" == "$CLOUDFRONT_ZONE_ID" ]] ||
+    die "refusing to replace the $DOMAIN $1 record: it exists and is not a CloudFront alias," \
+      "so deploy did not create it. Remove it by hand if it should point at the site."
+}
+
+# The API only accepts /api/* requests carrying this token, which CloudFront adds as the
+# X-Origin-Verify origin header. Merged into the existing secret JSON; never printed.
+ensure_origin_verify_token() {
+  local merged="$WORK_DIR/secret-merged.json" status
+  awsr secretsmanager get-secret-value --secret-id "$SECRET_ID" --query SecretString \
+    --output text >"$SECRET_FILE"
+  status=$(python3 -I "$HERE/origin_token.py" "$SECRET_FILE" "$merged") ||
+    die "could not read secret $SECRET_ID as a JSON object"
+  if [[ "$status" == added ]]; then
+    awsr secretsmanager put-secret-value --secret-id "$SECRET_ID" \
+      --secret-string "file://$merged" >/dev/null
+    mv "$merged" "$SECRET_FILE"
+    TOKEN_ADDED=true
+    log "generated ORIGIN_VERIFY_TOKEN and added it to secret $SECRET_ID (value not shown)"
+  else
+    log "ORIGIN_VERIFY_TOKEN is already set in secret $SECRET_ID"
   fi
 }
 
@@ -106,20 +165,30 @@ build_and_push_image() {
   docker push "$IMAGE_URI"
 }
 
-ensure_bucket() {
-  if ! resource_exists awsr s3api head-bucket --bucket "$BUCKET"; then
-    log "creating S3 bucket $BUCKET"
-    awsr s3api create-bucket --bucket "$BUCKET" \
+# ensure_private_bucket <name>: block all public access, SSE-S3, tagged.
+ensure_private_bucket() {
+  local bucket=$1
+  if ! resource_exists awsr s3api head-bucket --bucket "$bucket"; then
+    log "creating S3 bucket $bucket"
+    awsr s3api create-bucket --bucket "$bucket" \
       --create-bucket-configuration "LocationConstraint=$REGION" >/dev/null
-    state_add s3_bucket "$BUCKET"
+    state_add s3_bucket "$bucket"
   fi
-  awsr s3api put-public-access-block --bucket "$BUCKET" --public-access-block-configuration \
+  awsr s3api put-public-access-block --bucket "$bucket" --public-access-block-configuration \
     BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
-  awsr s3api put-bucket-encryption --bucket "$BUCKET" --server-side-encryption-configuration \
+  awsr s3api put-bucket-encryption --bucket "$bucket" --server-side-encryption-configuration \
     '{"Rules": [{"ApplyServerSideEncryptionByDefault": {"SSEAlgorithm": "AES256"}}]}'
+  awsr s3api put-bucket-tagging --bucket "$bucket" --tagging "TagSet=[{$TAG_KV}]"
+}
+
+# Uploads: expire stale objects; browsers PUT files to presigned URLs from the site only.
+ensure_bucket() {
+  ensure_private_bucket "$BUCKET"
   awsr s3api put-bucket-lifecycle-configuration --bucket "$BUCKET" \
     --lifecycle-configuration "file://$POLICY_DIR/s3-lifecycle.json"
-  awsr s3api put-bucket-tagging --bucket "$BUCKET" --tagging "TagSet=[{$TAG_KV}]"
+  awsr s3api put-bucket-cors --bucket "$BUCKET" \
+    --cors-configuration "$(render_policy s3-cors.json)"
+  state_add s3_bucket_cors "$BUCKET"
 }
 
 ensure_log_group() {
@@ -169,6 +238,11 @@ ensure_function() {
     log "updating $name to image $IMAGE_TAG"
     awsr lambda update-function-code --function-name "$name" --image-uri "$IMAGE_URI" >/dev/null
     awsr lambda wait function-updated-v2 --function-name "$name"
+    if $TOKEN_ADDED; then
+      # The function reads the secret at cold start; changing its configuration replaces the
+      # running instances so they pick up the new token.
+      env=$(jq -c --arg rev "$(date -u +%Y%m%dT%H%M%SZ)" '.Variables.CONFIG_REV = $rev' <<<"$env")
+    fi
     awsr lambda update-function-configuration --function-name "$name" --role "$LAMBDA_ROLE_ARN" \
       --memory-size "$MEMORY_MB" --timeout "$timeout" --environment "$env" >/dev/null
   else
@@ -244,10 +318,233 @@ ensure_schedule() {
   fi
 }
 
+ensure_oac() {
+  local config
+  OAC_ID=$(oac_by_name | head -n 1)
+  if [[ -z "$OAC_ID" ]]; then
+    log "creating CloudFront origin access control $OAC_NAME"
+    config=$(jq -cn --arg name "$OAC_NAME" '{Name: $name, Description: "jobmatch-ai site bucket",
+      SigningProtocol: "sigv4", SigningBehavior: "always", OriginAccessControlOriginType: "s3"}')
+    OAC_ID=$(awse cloudfront create-origin-access-control --origin-access-control-config \
+      "$config" --query OriginAccessControl.Id --output text)
+    state_add cloudfront_oac "$OAC_ID"
+  fi
+}
+
+# The viewer-request function that maps /dir/ to /dir/index.html (published every deploy).
+ensure_site_function() {
+  local etag config
+  config=$(jq -cn '{Comment: "jobmatch-ai: /dir/ -> /dir/index.html",
+    Runtime: "cloudfront-js-2.0"}')
+  if resource_exists awse cloudfront describe-function --name "$SITE_FUNCTION"; then
+    etag=$(awse cloudfront describe-function --name "$SITE_FUNCTION" --query ETag --output text)
+    etag=$(awse cloudfront update-function --name "$SITE_FUNCTION" --if-match "$etag" \
+      --function-config "$config" --function-code "fileb://$HERE/index-rewrite.js" \
+      --query ETag --output text)
+  else
+    log "creating CloudFront Function $SITE_FUNCTION"
+    etag=$(awse cloudfront create-function --name "$SITE_FUNCTION" --function-config "$config" \
+      --function-code "fileb://$HERE/index-rewrite.js" --query ETag --output text)
+    state_add cloudfront_function "$SITE_FUNCTION"
+  fi
+  SITE_FUNCTION_ARN=$(awse cloudfront publish-function --name "$SITE_FUNCTION" --if-match "$etag" \
+    --query FunctionSummary.FunctionMetadata.FunctionARN --output text)
+}
+
+# A recorded certificate that still exists, else one for $DOMAIN tagged as ours (a lost state
+# file), else nothing.
+find_certificate() {
+  local arn
+  for arn in $(state_ids acm_certificate); do
+    if resource_exists awse acm describe-certificate --certificate-arn "$arn"; then
+      printf '%s' "$arn"
+      return 0
+    fi
+  done
+  for arn in $(certificates_for_domain); do
+    if certificate_is_ours "$arn"; then
+      state_add acm_certificate "$arn"
+      printf '%s' "$arn"
+      return 0
+    fi
+  done
+}
+
+# The DNS validation record ACM wants; it appears a few seconds after the request.
+validation_record() {
+  local attempt record
+  for ((attempt = 1; attempt <= RETRY_ATTEMPTS; attempt++)); do
+    record=$(awse acm describe-certificate --certificate-arn "$1" \
+      --query 'Certificate.DomainValidationOptions[0].ResourceRecord' --output json)
+    if [[ "$record" != null ]]; then
+      printf '%s' "$record"
+      return 0
+    fi
+    sleep "$RETRY_SLEEP"
+  done
+  die "ACM has not provided the DNS validation record for $1; re-run make deploy"
+}
+
+# Certificate in us-east-1 (CloudFront's region) with its DNS validation record UPSERTed into
+# the zone. The record stays while the certificate exists: ACM renews through it.
+ensure_certificate() {
+  local record name type rrs
+  CERT_ARN=$(find_certificate)
+  if [[ -z "$CERT_ARN" ]]; then
+    log "requesting an ACM certificate for $DOMAIN in $EDGE_REGION (DNS validation)"
+    CERT_ARN=$(awse acm request-certificate --domain-name "$DOMAIN" --validation-method DNS \
+      --tags "$TAG_KV" --query CertificateArn --output text)
+    state_add acm_certificate "$CERT_ARN"
+  fi
+  record=$(validation_record "$CERT_ARN")
+  name=$(jq -r .Name <<<"$record")
+  type=$(jq -r .Type <<<"$record")
+  record_allowed "$name" "$type" ||
+    die "ACM asked for validation record $name $type, which is outside $DOMAIN; not writing it"
+  rrs=$(jq -c '{Name, Type, TTL: 300, ResourceRecords: [{Value}]}' <<<"$record")
+  log "writing the certificate's DNS validation record $name"
+  record_change "$ZONE_ID" UPSERT "$rrs" "$WORK_DIR" ||
+    die "could not write the DNS validation record $name"
+  state_add route53_record "$name|$type"
+}
+
+wait_for_certificate() {
+  local status deadline=$((SECONDS + ACM_TIMEOUT_S))
+  log "waiting for the certificate to be validated (usually a few minutes)"
+  while :; do
+    status=$(awse acm describe-certificate --certificate-arn "$CERT_ARN" \
+      --query Certificate.Status --output text)
+    case "$status" in
+      ISSUED) return 0 ;;
+      PENDING_VALIDATION) ;;
+      *) die "certificate $CERT_ARN is $status; run make teardown, then make deploy" ;;
+    esac
+    ((SECONDS < deadline)) ||
+      die "certificate $CERT_ARN was not validated within $((ACM_TIMEOUT_S / 60)) minutes." \
+        "Its DNS validation record is in place and everything so far is recorded: re-run" \
+        "make deploy to keep waiting, or make teardown to remove it all."
+    sleep "$ACM_POLL_SLEEP"
+  done
+}
+
+# distribution_config <caller reference>: the full DistributionConfig JSON. It contains the
+# origin token (read from the secret file), so it only ever goes to a file in WORK_DIR.
+distribution_config() {
+  local api_host=${FUNCTION_URL#https://}
+  api_host=${api_host%%/*}
+  jq -n --arg ref "$1" --slurpfile secret "$SECRET_FILE" --arg domain "$DOMAIN" \
+    --arg comment "$DISTRIBUTION_COMMENT" --arg site "$SITE_BUCKET.s3.$REGION.amazonaws.com" \
+    --arg api "$api_host" --arg oac "$OAC_ID" --arg fn "$SITE_FUNCTION_ARN" \
+    --arg cert "$CERT_ARN" --arg optimized "$CACHE_POLICY_CACHING_OPTIMIZED" \
+    --arg disabled "$CACHE_POLICY_CACHING_DISABLED" \
+    --arg forward "$ORIGIN_REQUEST_POLICY_ALL_VIEWER_EXCEPT_HOST" \
+    --argjson read_timeout "$ORIGIN_READ_TIMEOUT_S" '
+    def list($items): {Quantity: ($items | length), Items: $items};
+    ($secret[0].ORIGIN_VERIFY_TOKEN // "") as $token
+    | if ($token | length) < 32 then error("ORIGIN_VERIFY_TOKEN is missing from the secret")
+      else . end
+    | {
+      CallerReference: $ref,
+      Comment: $comment,
+      Enabled: true,
+      Aliases: list([$domain]),
+      DefaultRootObject: "index.html",
+      PriceClass: "PriceClass_100",
+      HttpVersion: "http2and3",
+      IsIPV6Enabled: true,
+      ViewerCertificate: {ACMCertificateArn: $cert, SSLSupportMethod: "sni-only",
+                          MinimumProtocolVersion: "TLSv1.2_2021"},
+      Origins: list([
+        {Id: "site", DomainName: $site, OriginPath: "", CustomHeaders: list([]),
+         S3OriginConfig: {OriginAccessIdentity: ""}, OriginAccessControlId: $oac},
+        {Id: "api", DomainName: $api, OriginPath: "",
+         CustomHeaders: list([{HeaderName: "X-Origin-Verify", HeaderValue: $token}]),
+         CustomOriginConfig: {HTTPPort: 80, HTTPSPort: 443, OriginProtocolPolicy: "https-only",
+                              OriginSslProtocols: list(["TLSv1.2"]),
+                              OriginReadTimeout: $read_timeout, OriginKeepaliveTimeout: 5}}
+      ]),
+      DefaultCacheBehavior: {
+        TargetOriginId: "site", ViewerProtocolPolicy: "redirect-to-https", Compress: true,
+        CachePolicyId: $optimized,
+        AllowedMethods: (list(["GET", "HEAD"]) + {CachedMethods: list(["GET", "HEAD"])}),
+        FunctionAssociations: list([{FunctionARN: $fn, EventType: "viewer-request"}])
+      },
+      CacheBehaviors: list([{
+        PathPattern: "/api/*", TargetOriginId: "api", ViewerProtocolPolicy: "https-only",
+        Compress: false, CachePolicyId: $disabled, OriginRequestPolicyId: $forward,
+        AllowedMethods: (list(["GET", "HEAD", "OPTIONS", "PUT", "PATCH", "POST", "DELETE"])
+                         + {CachedMethods: list(["GET", "HEAD"])})
+      }])
+    }'
+}
+
+# A recorded distribution that still exists, else the one with our comment, else nothing.
+find_distribution() {
+  local id
+  for id in $(state_ids cloudfront_distribution); do
+    if resource_exists awse cloudfront get-distribution --id "$id"; then
+      printf '%s' "$id"
+      return 0
+    fi
+  done
+  distributions_by_comment | head -n 1
+}
+
+ensure_distribution() {
+  local existing etag caller_ref info
+  local current="$WORK_DIR/distribution-current.json" config="$WORK_DIR/distribution.json"
+  existing=$(find_distribution)
+  if [[ -n "$existing" ]]; then
+    awse cloudfront get-distribution-config --id "$existing" --output json >"$current"
+    etag=$(jq -r .ETag "$current")
+    caller_ref=$(jq -r .DistributionConfig.CallerReference "$current")
+    distribution_config "$caller_ref" >"$config"
+    log "updating CloudFront distribution $existing"
+    awse cloudfront update-distribution --id "$existing" --if-match "$etag" \
+      --distribution-config "file://$config" >/dev/null
+    DISTRIBUTION_ID=$existing
+  else
+    distribution_config "jobmatch-ai-$(date -u +%Y%m%dT%H%M%SZ)" |
+      jq --arg project "$PROJECT" \
+        '{DistributionConfig: ., Tags: {Items: [{Key: "Project", Value: $project}]}}' >"$config"
+    log "creating CloudFront distribution for $DOMAIN"
+    DISTRIBUTION_ID=$(awse cloudfront create-distribution-with-tags \
+      --distribution-config-with-tags "file://$config" --query Distribution.Id --output text)
+    state_add cloudfront_distribution "$DISTRIBUTION_ID"
+  fi
+  rm -f "$config" "$current"
+  info=$(awse cloudfront get-distribution --id "$DISTRIBUTION_ID" \
+    --query '[Distribution.ARN, Distribution.DomainName]' --output text)
+  read -r DISTRIBUTION_ARN DISTRIBUTION_DOMAIN <<<"$info"
+}
+
+# Only this distribution (through the OAC) may read the private site bucket.
+ensure_site_bucket_policy() {
+  awsr s3api put-bucket-policy --bucket "$SITE_BUCKET" \
+    --policy "$(render_policy site-bucket-policy.json)"
+}
+
+ensure_alias_records() {
+  local type current rrs
+  for type in A AAAA; do
+    current=$(record_get "$ZONE_ID" "$DOMAIN." "$type") || die "could not read the $DOMAIN records"
+    foreign_record_guard "$type" "$current"
+    rrs=$(jq -cn --arg name "$DOMAIN." --arg type "$type" --arg zone "$CLOUDFRONT_ZONE_ID" \
+      --arg target "$DISTRIBUTION_DOMAIN." '{Name: $name, Type: $type,
+        AliasTarget: {HostedZoneId: $zone, DNSName: $target, EvaluateTargetHealth: false}}')
+    log "pointing $DOMAIN ($type) at the distribution"
+    record_change "$ZONE_ID" UPSERT "$rrs" "$WORK_DIR" || die "could not write the $DOMAIN $type record"
+    state_add route53_record "$DOMAIN.|$type"
+  done
+}
+
 main() {
   log "deploying to account $ACCOUNT_ID, region $REGION; state file $STATE_FILE"
   check_prerequisites
   ensure_budgets
+  ensure_origin_verify_token
+  # Requested early: DNS validation runs while the image builds.
+  ensure_certificate
   ensure_ecr_repository
   build_and_push_image
   ensure_bucket
@@ -262,9 +559,18 @@ main() {
     '{"CLEANUP_MODE": "true", "AWS_LWA_INVOKE_MODE": "buffered"}'
   ensure_role "$SCHEDULER_ROLE" scheduler-trust.json "$SCHEDULER_POLICY" scheduler-invoke.json
   ensure_schedule
+  ensure_private_bucket "$SITE_BUCKET"
+  ensure_oac
+  ensure_site_function
+  wait_for_certificate
+  ensure_distribution
+  ensure_site_bucket_policy
+  ensure_alias_records
   log "deployed image $IMAGE_TAG"
   log "Function URL: $FUNCTION_URL"
-  log "next: make migrate-prod (first deploy or new migrations), then make smoke-prod"
+  log "site: https://$DOMAIN (CloudFront $DISTRIBUTION_ID; first deploys take a few minutes)"
+  log "next: make migrate-prod (first deploy or new migrations), make deploy-frontend," \
+    "then make smoke-prod"
 }
 
 main "$@"
