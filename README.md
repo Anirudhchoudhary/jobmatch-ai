@@ -222,4 +222,70 @@ Per user, per UTC day: 5 analyses, 10 uploads, 30 chats and 10 suggestions (`ALL
 - `quota_exceeded`: "You've used today's {limit} {kind}. It resets at midnight UTC."
 - `rate_limited`: "Too many requests; wait a minute and try again."
 
-Out of scope here: OTP sign-in is not part of this phase (requests still use the local dev identity), and the global spend cap comes in Phase 5.
+Out of scope here: OTP sign-in is not part of this phase (requests still use the local dev identity), and the global spend cap is described under Phase 5.
+
+## Phase 5: observability and cost
+
+### What is recorded
+
+Every `/api` request writes one `request_log` row: `request_id`, `user_id`, `route`, `method`, `status`, `latency_ms`, the models used, input, output and prompt-cache token counts, `cost_usd`, `cache_hit` and the names of any non-allow guardrails. It holds no question or document text and no PII. A failure to write the row is logged and never fails the request.
+
+### Cost
+
+Cost is computed per LLM call from the token counts reported by the provider. Claude prices (USD per million tokens: input, output, cache read, cache write) are in `model_prices` in `backend/app/core/settings.py`; the Bedrock prices (`bedrock_embed_usd_per_mtok`, `bedrock_rerank_usd_per_query`, `bedrock_guardrail_usd_per_unit`) are next to it. `backend/app/llm/pricing.py` does the arithmetic. Prices are estimates for tracking, not a bill.
+
+### Spend cap
+
+`DAILY_SPEND_CAP_USD` (default 1.0) is a backstop. Before a chat, analysis, upload or suggestion request runs, the total `cost_usd` logged since 00:00 UTC is compared with the cap. At or over the cap the request is refused with HTTP 503, code `demo_at_capacity` and the message "The demo is at capacity today. Please try again tomorrow."; a `spend_cap` guardrail event is recorded. The environment variable cannot express "no cap", so set a large value to disable it.
+
+### Semantic cache
+
+Grounded chat answers are cached per user by question embedding. A new question reuses a cached answer when its similarity is at least `SEMANTIC_CACHE_THRESHOLD` (0.95) and the row is younger than `SEMANTIC_CACHE_TTL_HOURS` (72). `SEMANTIC_CACHE_ENABLED=false` turns it off.
+
+- The cache is bypassed when any guard outcome is not `allow`, including when PII was redacted from the question.
+- Uploading a new document clears that user's cache rows.
+- A cache hit still uses chat allowance.
+- Expired rows are ignored but not deleted yet; a cleanup job comes in Phase 7.
+
+### Fallback
+
+For chat, a retryable failure (429, 5xx or a connection error, after the SDK's own retries) falls back from Haiku to Sonnet. Structured calls fall back between the two models once. 400, 401 and 404 are never retried.
+
+### Prompt caching
+
+Prompt caching is used only on the structured-analysis context, which matters for feedback retries. It is not used elsewhere: the system prompts are about 300 tokens, under the 512-token minimum for caching, and chat context changes with every question.
+
+### Langfuse tracing
+
+Tracing is optional. Put `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` in the `jobmatch/dev` secret and run `make env`; both must be present. `LANGFUSE_HOST` defaults to Langfuse Cloud. Chat, analysis and suggestion runs are traced under the user id; graph nodes become spans and LLM generations carry their token counts. Every string is masked with the PII redactor before it is sent.
+
+### Report
+
+```sh
+make report            # last 7 days
+DAYS=30 make report    # longer window
+```
+
+Prints p50 and p95 latency, request count, cost and cache hit rate per route, today's spend against the cap, and guardrail event counts. Sample output from a local database after integration tests (the `/api/test` row is a test fixture):
+
+```
+JobMatch report — last 7 day(s)
+
+Spend today: $0.0000 of $1.00 cap
+
+| route | requests | p50 ms | p95 ms | avg $ | total $ | cache hit % |
+| --- | --- | --- | --- | --- | --- | --- |
+| /api/suggestions | 5 | 17 | 27 | 0.0000 | 0.0000 | 0 |
+| /api/samples | 4 | 56 | 60 | 0.0000 | 0.0000 | 0 |
+| /api/stream/analyses | 3 | 43 | 45 | 0.0000 | 0.0000 | 0 |
+| /api/stream/documents | 1 | 23 | 23 | 0.0000 | 0.0000 | 0 |
+| /api/test | 1 | 1 | 1 | 5.0000 | 5.0000 | 0 |
+
+No guardrail events recorded.
+```
+
+### Known limits
+
+- The spend cap counts only finished requests; spend from requests still in flight is not included.
+- Langfuse flushes on shutdown only until Phase 7, so traces can appear late.
+- Presidio masking adds latency to traced requests.

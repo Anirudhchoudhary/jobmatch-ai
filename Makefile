@@ -6,7 +6,7 @@ RUN2 = && $(UV) run
 DATABASE_URL ?= postgresql+psycopg://jobmatch:jobmatch@localhost:5432/jobmatch
 export DATABASE_URL
 
-.PHONY: install lint fmt typecheck test test-integration env up down migrate db-shell setup run logs samples retrieval-eval retrieval-eval-live
+.PHONY: install lint fmt typecheck test test-integration env up down migrate db-shell setup run logs samples retrieval-eval retrieval-eval-live report
 
 install:
 	cd backend && $(UV) sync --locked
@@ -55,6 +55,10 @@ samples:
 # Offline providers (hash embedder, no reranker); prints the table, writes an ignored file.
 retrieval-eval:
 	$(RUN) python -m scripts.retrieval_eval --out ../var/retrieval_baseline.offline.json
+
+# Latency, cost and guardrail report from the local DB (DAYS=30 for a longer window).
+report:
+	$(RUN) python -m scripts.report --days $${DAYS:-7}
 
 # Real Bedrock embeddings + rerank: needs AWS credentials; costs fractions of a cent.
 retrieval-eval-live:
