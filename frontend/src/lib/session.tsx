@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { apiGet, apiPost, setUnauthorizedHandler } from "./api";
 
 export const SESSION_EXPIRED_MESSAGE = "Your session expired. Sign in again.";
+export const SIGN_OUT_FAILED_MESSAGE = "Sign-out failed. Please try again.";
 
 export interface SessionUser {
   user_id: string;
@@ -16,7 +17,11 @@ interface SessionValue {
   loading: boolean;
   /** One-off message for the sign-in page, e.g. after the session expired. */
   notice: string | null;
-  refresh(): Promise<void>;
+  /** Set when the last sign-out failed; the user is still signed in. */
+  signOutError: string | null;
+  /** Reload the current user; resolves true when signed in. Never rejects. */
+  refresh(): Promise<boolean>;
+  /** Never rejects; on failure the user stays signed in and `signOutError` is set. */
   signOut(): Promise<void>;
 }
 
@@ -28,6 +33,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<string | null>(null);
+  const [signOutError, setSignOutError] = useState<string | null>(null);
   const userRef = useRef<SessionUser | null>(null);
 
   const apply = useCallback((next: SessionUser | null) => {
@@ -39,21 +45,27 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     try {
       apply(await apiGet<SessionUser>("/api/auth/me"));
       setNotice(null);
+      return true;
     } catch {
       apply(null); // not signed in (or unreachable): treated as signed out
+      return false;
     } finally {
       setLoading(false);
     }
   }, [apply]);
 
   const signOut = useCallback(async () => {
+    setSignOutError(null);
     try {
       await apiPost("/api/auth/logout");
-    } finally {
-      apply(null);
-      setNotice(null);
-      router.push("/");
+    } catch {
+      // The cookie may still be valid, so stay signed in. A 401 has already signed us out.
+      if (userRef.current !== null) setSignOutError(SIGN_OUT_FAILED_MESSAGE);
+      return;
     }
+    apply(null);
+    setNotice(null);
+    router.push("/");
   }, [apply, router]);
 
   useEffect(() => {
@@ -72,8 +84,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   }, [refresh]);
 
   const value = useMemo(
-    () => ({ user, loading, notice, refresh, signOut }),
-    [user, loading, notice, refresh, signOut],
+    () => ({ user, loading, notice, signOutError, refresh, signOut }),
+    [user, loading, notice, signOutError, refresh, signOut],
   );
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }

@@ -10,6 +10,8 @@ import { Input } from "./ui/Input";
 
 type Step = "email" | "code";
 
+const SESSION_LOAD_FAILED_MESSAGE = "You're signed in, but we couldn't load your account. Reload the page to continue.";
+
 function messageOf(e: unknown): string {
   return e instanceof ApiError ? e.message : GENERIC_ERROR_MESSAGE;
 }
@@ -57,7 +59,12 @@ export function SignIn() {
     setBusy(true);
     try {
       await apiPost("/api/auth/verify", { email: email.trim(), code: code.trim() });
-      await refresh();
+      if (!(await refresh())) {
+        // Navigating now would bounce straight back here with no explanation.
+        setError(SESSION_LOAD_FAILED_MESSAGE);
+        setBusy(false);
+        return;
+      }
       router.push("/app/");
     } catch (e) {
       setError(messageOf(e));

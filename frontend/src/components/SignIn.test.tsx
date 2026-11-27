@@ -21,7 +21,7 @@ describe("SignIn", () => {
   beforeEach(() => {
     fetchMock.mockReset();
     push.mockReset();
-    refresh.mockReset().mockResolvedValue(undefined);
+    refresh.mockReset().mockResolvedValue(true);
     vi.stubGlobal("fetch", fetchMock);
   });
   afterEach(() => vi.unstubAllGlobals());
@@ -75,6 +75,20 @@ describe("SignIn", () => {
     expect(path).toBe("/api/auth/verify");
     expect(JSON.parse(init.body)).toEqual({ email: "new@example.com", code: "123456" });
     expect(refresh).toHaveBeenCalled();
+  });
+
+  it("shows an error instead of navigating when the session cannot be loaded after verify", async () => {
+    const user = userEvent.setup();
+    const code = await toCodeStep(user);
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { user_id: "u1" }));
+    refresh.mockResolvedValueOnce(false);
+    await user.type(code, "123456");
+    await user.click(screen.getByRole("button", { name: /verify/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "You're signed in, but we couldn't load your account. Reload the page to continue.",
+    );
+    expect(push).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: /verify/i })).toBeEnabled();
   });
 
   it("resends the code", async () => {

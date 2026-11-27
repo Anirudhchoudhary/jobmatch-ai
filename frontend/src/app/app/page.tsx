@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/Button";
 import { Analysis } from "@/components/Analysis";
 import { Chat } from "@/components/Chat";
@@ -10,7 +11,7 @@ import { useSession } from "@/lib/session";
 
 export default function Workspace() {
   const router = useRouter();
-  const { user, loading, signOut } = useSession();
+  const { user, loading, signOutError, signOut } = useSession();
   // Bumped each time both documents are (re)loaded; Analysis offers a re-run when it changes.
   const [docsVersion, setDocsVersion] = useState(0);
 
@@ -40,6 +41,11 @@ export default function Workspace() {
           </Button>
         </div>
       </header>
+      {signOutError ? (
+        <div className="mt-4">
+          <Alert>{signOutError}</Alert>
+        </div>
+      ) : null}
       <Documents onReady={() => setDocsVersion((v) => v + 1)} />
       {docsVersion > 0 ? <Analysis docsVersion={docsVersion} /> : null}
       {docsVersion > 0 ? <Chat /> : null}
