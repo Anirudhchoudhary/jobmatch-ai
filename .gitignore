@@ -15,3 +15,8 @@ backend/.venv/
 /aws/
 /awscliv2.zip
 var/
+
+# frontend
+frontend/node_modules
+frontend/.next
+frontend/out
