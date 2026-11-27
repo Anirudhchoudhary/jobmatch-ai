@@ -25,6 +25,7 @@ DOMAIN = "jobmatch.ntrye.com"
 FQDN = f"{DOMAIN}."
 CLOUDFRONT_ZONE_ID = "Z2FDTNDATAQYW2"
 CACHING_OPTIMIZED = "658327ea-f89d-4fab-a63d-7e88639e58f6"
+SECURITY_HEADERS = "67f7725c-6f97-4210-82d7-5512b31e9d03"
 CACHING_DISABLED = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
 ALL_VIEWER_EXCEPT_HOST = "b689b0a8-53d0-40ab-baf2-68738e2966ac"
 # The author's existing secret (made by `make secrets-set`): deploy must keep every key.
@@ -219,7 +220,7 @@ def deployed(
     return result
 
 
-NOT_RESOURCES = {"counters", "hosted_zones", "secret_values", "cf_invalidations"}
+NOT_RESOURCES = {"counters", "hosted_zones", "secret_values", "secret_versions", "cf_invalidations"}
 
 
 def remaining(world: dict[str, Any]) -> dict[str, Any]:
@@ -318,6 +319,8 @@ def test_deploy_configures_functions_url_and_permissions(
         "PII_ENGINE": "presidio",
         "MIN_RELEVANCE": "0",
         "DB_CONNECT_TIMEOUT_S": "10",
+        # The secret's version: a changed secret recycles the functions on the next deploy.
+        "CONFIG_REV": sandbox.world()["secret_versions"]["jobmatch/prod"],
     }
     api_env = json.loads(flag(creates["jobmatch-api"], "--environment"))["Variables"]
     cleanup_env = json.loads(flag(creates["jobmatch-cleanup"], "--environment"))["Variables"]
@@ -939,6 +942,8 @@ def test_distribution_config(sandbox: Sandbox, deployed: subprocess.CompletedPro
     assert default["ViewerProtocolPolicy"] == "redirect-to-https"
     assert default["CachePolicyId"] == CACHING_OPTIMIZED
     assert default["AllowedMethods"]["Items"] == ["GET", "HEAD"]
+    # Managed SecurityHeadersPolicy (HSTS, nosniff, frame options...) on the site only.
+    assert default["ResponseHeadersPolicyId"] == SECURITY_HEADERS
     (assoc,) = default["FunctionAssociations"]["Items"]
     assert assoc["EventType"] == "viewer-request"
     assert assoc["FunctionARN"].endswith(":function/jobmatch-index-rewrite")
@@ -955,6 +960,19 @@ def test_distribution_config(sandbox: Sandbox, deployed: subprocess.CompletedPro
     )
     assert api_behavior["AllowedMethods"]["CachedMethods"]["Items"] == ["GET", "HEAD"]
     assert api_behavior["ViewerProtocolPolicy"] == "https-only"
+    assert "ResponseHeadersPolicyId" not in api_behavior
+    # A missing site key is a 403 from S3 through the OAC: shown as the site's 404 page.
+    assert cfg["CustomErrorResponses"] == {
+        "Quantity": 1,
+        "Items": [
+            {
+                "ErrorCode": 403,
+                "ResponsePagePath": "/404.html",
+                "ResponseCode": "404",
+                "ErrorCachingMinTTL": 10,
+            }
+        ],
+    }
     assert "FunctionAssociations" not in api_behavior or not api_behavior[
         "FunctionAssociations"
     ].get("Items")
@@ -1049,8 +1067,12 @@ def test_redeploy_keeps_the_token_and_updates_the_distribution(
     assert secret_json(after) == secret_json(before)
     assert not call(calls, "secretsmanager", "put-secret-value")
     assert not call(calls, "acm", "request-certificate")
-    for update in call(calls, "lambda", "update-function-configuration"):
-        assert "CONFIG_REV" not in flag(update, "--environment")
+    # Unchanged secret: the same CONFIG_REV, so warm instances are not recycled for nothing.
+    version = after["secret_versions"]["jobmatch/prod"]
+    updates = call(calls, "lambda", "update-function-configuration")
+    assert len(updates) == 2
+    for update in updates:
+        assert json.loads(flag(update, "--environment"))["Variables"]["CONFIG_REV"] == version
     assert len(call(calls, "cloudfront", "update-distribution")) == 1
     assert len(call(calls, "cloudfront", "publish-function")) == 1
     assert after["cf_distributions"].keys() == before["cf_distributions"].keys()
@@ -1080,10 +1102,45 @@ def test_token_added_later_restarts_functions_and_updates_the_header(
         for c in call(calls, "lambda", "update-function-configuration")
     }
     assert set(updated) == {"jobmatch-api", "jobmatch-cleanup"}
-    assert all(env.get("CONFIG_REV") for env in updated.values())
+    version = world["secret_versions"]["jobmatch/prod"]
+    assert all(env.get("CONFIG_REV") == version for env in updated.values())
     _, dist = the_distribution(world)
     api = next(o for o in dist["config"]["Origins"]["Items"] if o["Id"] == "api")
     assert api["CustomHeaders"]["Items"][0]["HeaderValue"] == token
+
+
+def test_first_deploy_sets_config_rev_to_the_secret_version(
+    sandbox: Sandbox, deployed: subprocess.CompletedProcess[str]
+) -> None:
+    # The first deploy adds the token, so the version is the one that put-secret-value made.
+    version = sandbox.world()["secret_versions"]["jobmatch/prod"]
+    created = {
+        flag(c, "--function-name"): json.loads(flag(c, "--environment"))["Variables"]
+        for c in call(sandbox.aws_calls(), "lambda", "create-function")
+    }
+    assert set(created) == {"jobmatch-api", "jobmatch-cleanup"}
+    assert all(env["CONFIG_REV"] == version for env in created.values())
+
+
+def test_any_secret_change_recycles_functions_on_the_next_deploy(
+    sandbox: Sandbox, deployed: subprocess.CompletedProcess[str]
+) -> None:
+    # e.g. `make secrets-set` rotated the Anthropic key: a new secret version, token unchanged.
+    world = sandbox.world()
+    world["secret_versions"]["jobmatch/prod"] = "11111111-2222-4333-8444-555555555555"
+    sandbox.world_file.write_text(json.dumps(world))
+    sandbox.reset_logs()
+    deploy_ok(sandbox)
+    calls = sandbox.aws_calls()
+    assert not call(calls, "secretsmanager", "put-secret-value")
+    updated = {
+        flag(c, "--function-name"): json.loads(flag(c, "--environment"))["Variables"]
+        for c in call(calls, "lambda", "update-function-configuration")
+    }
+    assert set(updated) == {"jobmatch-api", "jobmatch-cleanup"}
+    assert all(
+        env["CONFIG_REV"] == "11111111-2222-4333-8444-555555555555" for env in updated.values()
+    )
 
 
 def test_a_short_token_is_replaced(sandbox: Sandbox) -> None:
@@ -1135,6 +1192,39 @@ def test_deploy_refuses_to_overwrite_a_record_it_did_not_create(sandbox: Sandbox
     assert remaining(sandbox.world()) == {}
     assert zone_records(sandbox.world()) == [*NTRYE_RECORDS, FOREIGN_A]
     assert "left alone" in teardown.stdout + teardown.stderr
+
+
+FOREIGN_CNAME = {
+    "Name": FQDN,
+    "Type": "CNAME",
+    "TTL": 300,
+    "ResourceRecords": [{"Value": "somewhere-else.example.net"}],
+}
+
+
+def test_deploy_refuses_a_cname_at_the_site_name(sandbox: Sandbox) -> None:
+    world = sandbox.world()
+    world["hosted_zones"][NTRYE_ZONE_ID]["records"].append(FOREIGN_CNAME)
+    sandbox.world_file.write_text(json.dumps(world))
+    result = sandbox.run("deploy.sh")
+    assert result.returncode != 0
+    assert "CNAME" in result.stderr and "refusing" in result.stderr
+    # Checked before anything is created.
+    assert not [c for c in sandbox.aws_calls() if c[1].startswith(("create-", "request-"))]
+    assert not call(sandbox.aws_calls(), "route53", "change-resource-record-sets")
+    assert FOREIGN_CNAME in zone_records(sandbox.world())
+
+
+def test_failed_certificate_listing_stops_deploy_instead_of_requesting_another(
+    sandbox: Sandbox, deployed: subprocess.CompletedProcess[str]
+) -> None:
+    sandbox.state_file.unlink()  # lost state: the certificate can only be found by listing
+    sandbox.reset_logs()
+    result = sandbox.run("deploy.sh", FAKE_AWS_FAIL_ON="acm list-certificates")
+    assert result.returncode != 0
+    assert "could not list ACM certificates" in result.stderr
+    assert not call(sandbox.aws_calls(), "acm", "request-certificate")
+    assert len(sandbox.world()["certificates"]) == 1
 
 
 def test_dns_changes_are_limited_to_the_jobmatch_names(
@@ -1284,9 +1374,20 @@ def test_deploy_frontend_needs_a_deployed_distribution(sandbox: Sandbox) -> None
     assert not (sandbox.root / "npm.log").exists()
 
 
+def filters(argv: list[str]) -> list[tuple[str, str]]:
+    return [(a, argv[i + 1]) for i, a in enumerate(argv) if a in ("--exclude", "--include")]
+
+
 def test_deploy_frontend_builds_syncs_and_invalidates(
     sandbox: Sandbox, deployed: subprocess.CompletedProcess[str]
 ) -> None:
+    world = sandbox.world()
+    world["buckets"][SITE_BUCKET] += [
+        "_next/static/chunks/main-0old00.js",
+        "old/index.html",
+        "old/index.txt",
+    ]
+    sandbox.world_file.write_text(json.dumps(world))
     sandbox.reset_logs()
     result = run_deploy_frontend(sandbox)
     assert result.returncode == 0, result.stdout + result.stderr
@@ -1295,17 +1396,30 @@ def test_deploy_frontend_builds_syncs_and_invalidates(
     assert all(line.endswith(f"(in {sandbox.root / 'frontend'})") for line in npm)
 
     syncs = call(sandbox.aws_calls(), "s3", "sync")
-    assert len(syncs) == 2
-    hashed, rest = syncs
+    assert len(syncs) == 3
+    hashed, rsc, rest = syncs
     assert hashed[2].endswith("out/_next/static")
     assert hashed[3] == f"s3://{SITE_BUCKET}/_next/static"
     assert flag(hashed, "--cache-control") == "public, max-age=31536000, immutable"
+    # Earlier builds' hashed assets stay, so a page still open in a browser keeps working.
+    assert "--delete" not in hashed
+    # RSC payloads get the type the Next.js client expects.
+    assert rsc[2].endswith("/out") and rsc[3] == f"s3://{SITE_BUCKET}"
+    assert flag(rsc, "--content-type") == "text/x-component"
+    assert flag(rsc, "--cache-control") == "no-cache"
+    assert filters(rsc) == [
+        ("--exclude", "*"),
+        ("--include", "*.txt"),
+        ("--exclude", "_next/static/*"),
+    ]
     assert rest[2].endswith("/out") and rest[3] == f"s3://{SITE_BUCKET}"
     assert flag(rest, "--cache-control") == "no-cache"
-    assert flag(rest, "--exclude") == "_next/static/*"
-    assert "--delete" in hashed and "--delete" in rest
-    # Stale objects are gone; the new build is there.
+    assert "--content-type" not in rest
+    assert filters(rest) == [("--exclude", "_next/static/*"), ("--exclude", "*.txt")]
+    assert "--delete" in rsc and "--delete" in rest
+    # Stale HTML and RSC objects are gone; old hashed assets and the new build are there.
     assert sorted(sandbox.world()["buckets"][SITE_BUCKET]) == [
+        "_next/static/chunks/main-0old00.js",
         "_next/static/chunks/main-1a2b3c.js",
         "app/index.html",
         "app/index.txt",
@@ -1413,3 +1527,95 @@ def test_record_guard_allows_only_the_jobmatch_records(
         [BASH, "-c", script, "guard", name, rtype], capture_output=True, text=True, check=False
     )
     assert (result.returncode == 0) is allowed
+
+
+# ---- make smoke-prod
+
+FAKE_CURL = """#!/usr/bin/env python3
+import json, os, sys
+args = sys.argv[1:]
+url = args[-1]
+with open(os.environ["FAKE_CURL_LOG"], "a") as fh:
+    fh.write(json.dumps(args) + "\\n")
+status, body = json.loads(os.environ["FAKE_CURL_MAP"]).get(url, [0, ""])
+if status == 0:
+    print("curl: (6) Could not resolve host", file=sys.stderr)
+    sys.exit(6)
+if "-w" in args:
+    print(status, end="")
+    sys.exit(0)
+short = "".join(a for a in args if a.startswith("-") and not a.startswith("--"))
+if "f" in short and status >= 400:
+    sys.exit(22)
+print(body)
+"""
+
+FUNCTION_URL = "https://abc123.lambda-url.us-west-2.on.aws"
+HEALTHY = {
+    f"{FUNCTION_URL}/health": [200, '{"status": "ok"}'],
+    f"https://{DOMAIN}/": [200, "<html></html>"],
+    f"https://{DOMAIN}/api/auth/me": [401, "{}"],
+    f"{FUNCTION_URL}/api/auth/me": [403, "{}"],
+}
+
+
+def run_smoke(
+    sandbox: Sandbox, responses: dict[str, list[Any]]
+) -> subprocess.CompletedProcess[str]:
+    curl = sandbox.root / "bin" / "curl"
+    curl.write_text(FAKE_CURL)
+    curl.chmod(0o755)
+    return sandbox.run(
+        "smoke-prod.sh",
+        FAKE_CURL_MAP=json.dumps(responses),
+        FAKE_CURL_LOG=str(sandbox.root / "curl.log"),
+    )
+
+
+def curled(sandbox: Sandbox) -> list[str]:
+    log = sandbox.root / "curl.log"
+    return [json.loads(line)[-1] for line in log.read_text().splitlines()] if log.exists() else []
+
+
+def test_smoke_prod_checks_health_site_api_and_the_origin_lock(
+    sandbox: Sandbox, deployed: subprocess.CompletedProcess[str]
+) -> None:
+    result = run_smoke(sandbox, HEALTHY)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert sorted(curled(sandbox)) == sorted(HEALTHY)
+    assert "smoke-prod ok" in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("url", "status"),
+    [
+        (f"https://{DOMAIN}/", 403),
+        (f"https://{DOMAIN}/api/auth/me", 200),
+        (f"{FUNCTION_URL}/api/auth/me", 401),  # the Function URL is not locked to CloudFront
+        (f"{FUNCTION_URL}/health", 503),
+        (f"https://{DOMAIN}/", 0),
+    ],
+)
+def test_smoke_prod_fails_on_any_unexpected_answer(
+    sandbox: Sandbox, deployed: subprocess.CompletedProcess[str], url: str, status: int
+) -> None:
+    result = run_smoke(sandbox, {**HEALTHY, url: [status, "{}"]})
+    assert result.returncode == 1
+    assert url in result.stderr
+    # Every check still runs, so one report lists every failure.
+    assert sorted(curled(sandbox)) == sorted(HEALTHY)
+
+
+def test_smoke_prod_without_a_distribution_checks_only_health(sandbox: Sandbox) -> None:
+    sandbox.state_file.parent.mkdir(parents=True, exist_ok=True)
+    sandbox.state_file.write_text(json.dumps({"resources": [], "function_url": f"{FUNCTION_URL}/"}))
+    result = run_smoke(sandbox, HEALTHY)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert curled(sandbox) == [f"{FUNCTION_URL}/health"]
+
+
+def test_smoke_prod_needs_a_deploy(sandbox: Sandbox) -> None:
+    result = run_smoke(sandbox, HEALTHY)
+    assert result.returncode != 0
+    assert "make deploy" in result.stderr
+    assert curled(sandbox) == []

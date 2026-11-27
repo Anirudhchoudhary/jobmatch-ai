@@ -45,9 +45,10 @@ CLOUDFRONT_ZONE_ID=Z2FDTNDATAQYW2           # Route 53 alias target zone of ever
 # CloudFront's viewer-location headers, which include CloudFront-Viewer-Address.
 CACHE_POLICY_CACHING_OPTIMIZED=658327ea-f89d-4fab-a63d-7e88639e58f6
 CACHE_POLICY_CACHING_DISABLED=4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+RESPONSE_HEADERS_POLICY_SECURITY_HEADERS=67f7725c-6f97-4210-82d7-5512b31e9d03 # site only
 ORIGIN_REQUEST_POLICY_ALL_VIEWER_EXCEPT_HOST=b689b0a8-53d0-40ab-baf2-68738e2966ac
-# Longest wait for the next byte from the API without a quota increase. SSE streams send
-# tokens continuously; one silent for longer than this is cut by CloudFront.
+# Longest wait for the next byte from the API without a quota increase. The API's SSE streams
+# send a keep-alive comment after 15 s of silence (SSE_KEEPALIVE_S), well inside this limit.
 ORIGIN_READ_TIMEOUT_S=60
 ACM_VALIDATION_TIMEOUT_S=1200 # give up waiting for DNS validation after 20 minutes
 

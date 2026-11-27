@@ -30,7 +30,7 @@ umask 077
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "$WORK_DIR"' EXIT
 SECRET_FILE="$WORK_DIR/secret.json"
-TOKEN_ADDED=false
+SECRET_VERSION=""
 ZONE_ID=""
 CERT_ARN=""
 OAC_ID=""
@@ -83,6 +83,11 @@ check_prerequisites() {
     current=$(record_get "$ZONE_ID" "$DOMAIN." "$type") || die "could not read the $DOMAIN records"
     foreign_record_guard "$type" "$current"
   done
+  # A CNAME cannot share its name with the alias records, and deploy never makes one there.
+  current=$(record_get "$ZONE_ID" "$DOMAIN." CNAME) || die "could not read the $DOMAIN records"
+  [[ -z "$current" ]] ||
+    die "refusing to deploy: $DOMAIN has a CNAME record, which deploy did not create and which" \
+      "the site's A/AAAA alias records cannot coexist with. Remove it by hand first."
   if [[ -n "$(git -C "$REPO_ROOT" status --porcelain)" ]]; then
     warn "working tree has uncommitted changes; the image tag $IMAGE_TAG will not match them"
   fi
@@ -111,11 +116,22 @@ ensure_origin_verify_token() {
     awsr secretsmanager put-secret-value --secret-id "$SECRET_ID" \
       --secret-string "file://$merged" >/dev/null
     mv "$merged" "$SECRET_FILE"
-    TOKEN_ADDED=true
     log "generated ORIGIN_VERIFY_TOKEN and added it to secret $SECRET_ID (value not shown)"
   else
     log "ORIGIN_VERIFY_TOKEN is already set in secret $SECRET_ID"
   fi
+}
+
+# The secret's current VersionId (an id, not secret material). Functions read the secret at
+# cold start, so it goes into their environment as CONFIG_REV: any change to the secret (a new
+# token, or `make secrets-set` rotating a key) changes the configuration on the next deploy,
+# which replaces the warm instances; an unchanged secret leaves them running.
+read_secret_version() {
+  SECRET_VERSION=$(awsr secretsmanager describe-secret --secret-id "$SECRET_ID" \
+    --query VersionIdsToStages --output json |
+    jq -r 'to_entries[] | select(.value | index("AWSCURRENT")) | .key') ||
+    die "could not read the current version of secret $SECRET_ID"
+  [[ -n "$SECRET_VERSION" ]] || die "secret $SECRET_ID has no AWSCURRENT version"
 }
 
 # Budgets come first so alerts exist for as long as anything else does.
@@ -233,16 +249,11 @@ function_environment() {
 # ensure_function <name> <timeout seconds> <extra env JSON object>
 ensure_function() {
   local name=$1 timeout=$2 env
-  env=$(function_environment "$3")
+  env=$(function_environment "$3" | jq -c --arg rev "$SECRET_VERSION" '.Variables.CONFIG_REV = $rev')
   if resource_exists awsr lambda get-function --function-name "$name"; then
     log "updating $name to image $IMAGE_TAG"
     awsr lambda update-function-code --function-name "$name" --image-uri "$IMAGE_URI" >/dev/null
     awsr lambda wait function-updated-v2 --function-name "$name"
-    if $TOKEN_ADDED; then
-      # The function reads the secret at cold start; changing its configuration replaces the
-      # running instances so they pick up the new token.
-      env=$(jq -c --arg rev "$(date -u +%Y%m%dT%H%M%SZ)" '.Variables.CONFIG_REV = $rev' <<<"$env")
-    fi
     awsr lambda update-function-configuration --function-name "$name" --role "$LAMBDA_ROLE_ARN" \
       --memory-size "$MEMORY_MB" --timeout "$timeout" --environment "$env" >/dev/null
   else
@@ -354,14 +365,16 @@ ensure_site_function() {
 # A recorded certificate that still exists, else one for $DOMAIN tagged as ours (a lost state
 # file), else nothing.
 find_certificate() {
-  local arn
+  local arn arns
   for arn in $(state_ids acm_certificate); do
     if resource_exists awse acm describe-certificate --certificate-arn "$arn"; then
       printf '%s' "$arn"
       return 0
     fi
   done
-  for arn in $(certificates_for_domain); do
+  # A failed listing is not "no certificate": requesting another would leave a duplicate.
+  arns=$(certificates_for_domain) || die "could not list ACM certificates in $EDGE_REGION"
+  for arn in $arns; do
     if certificate_is_ours "$arn"; then
       state_add acm_certificate "$arn"
       printf '%s' "$arn"
@@ -437,6 +450,7 @@ distribution_config() {
     --arg api "$api_host" --arg oac "$OAC_ID" --arg fn "$SITE_FUNCTION_ARN" \
     --arg cert "$CERT_ARN" --arg optimized "$CACHE_POLICY_CACHING_OPTIMIZED" \
     --arg disabled "$CACHE_POLICY_CACHING_DISABLED" \
+    --arg security_headers "$RESPONSE_HEADERS_POLICY_SECURITY_HEADERS" \
     --arg forward "$ORIGIN_REQUEST_POLICY_ALL_VIEWER_EXCEPT_HOST" \
     --argjson read_timeout "$ORIGIN_READ_TIMEOUT_S" '
     def list($items): {Quantity: ($items | length), Items: $items};
@@ -465,7 +479,7 @@ distribution_config() {
       ]),
       DefaultCacheBehavior: {
         TargetOriginId: "site", ViewerProtocolPolicy: "redirect-to-https", Compress: true,
-        CachePolicyId: $optimized,
+        CachePolicyId: $optimized, ResponseHeadersPolicyId: $security_headers,
         AllowedMethods: (list(["GET", "HEAD"]) + {CachedMethods: list(["GET", "HEAD"])}),
         FunctionAssociations: list([{FunctionARN: $fn, EventType: "viewer-request"}])
       },
@@ -474,7 +488,11 @@ distribution_config() {
         Compress: false, CachePolicyId: $disabled, OriginRequestPolicyId: $forward,
         AllowedMethods: (list(["GET", "HEAD", "OPTIONS", "PUT", "PATCH", "POST", "DELETE"])
                          + {CachedMethods: list(["GET", "HEAD"])})
-      }])
+      }]),
+      # S3 (through the OAC) answers 403 for a missing key. The API never answers 403 through
+      # CloudFront (CloudFront always sends the origin token), so this only maps site misses.
+      CustomErrorResponses: list([{ErrorCode: 403, ResponsePagePath: "/404.html",
+                                   ResponseCode: "404", ErrorCachingMinTTL: 10}])
     }'
 }
 
@@ -543,6 +561,7 @@ main() {
   check_prerequisites
   ensure_budgets
   ensure_origin_verify_token
+  read_secret_version
   # Requested early: DNS validation runs while the image builds.
   ensure_certificate
   ensure_ecr_repository

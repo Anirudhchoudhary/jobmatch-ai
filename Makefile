@@ -113,13 +113,10 @@ deploy-frontend:
 teardown:
 	infra/aws/teardown.sh $(TEARDOWN_ARGS)
 
-# GET <Function URL>/health from the state file and require "status": "ok".
+# <Function URL>/health must report "status": "ok"; once the distribution exists, also
+# https://jobmatch.ntrye.com/ -> 200, its /api/auth/me -> 401 and the Function URL's -> 403.
 smoke-prod:
-	@url=$$(jq -r '.function_url // empty' $(DEPLOY_STATE) 2>/dev/null); \
-	test -n "$$url" || { echo "no Function URL in $(DEPLOY_STATE): run make deploy first" >&2; exit 1; }; \
-	curl -fsS --max-time 60 "$${url%/}/health" | jq -e '.status == "ok"' >/dev/null \
-	  && echo "smoke-prod ok: $${url%/}/health" \
-	  || { echo "smoke-prod failed: $${url%/}/health did not report status ok" >&2; exit 1; }
+	infra/aws/smoke-prod.sh
 
 fe-install:
 	cd frontend && npm ci

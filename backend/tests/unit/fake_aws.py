@@ -45,6 +45,7 @@ EMPTY_WORLD: dict[str, Any] = {
     "budgets": [],
     "secrets": [],
     "secret_values": {},
+    "secret_versions": {},
     "bucket_cors": {},
     "bucket_policies": {},
     "certificates": {},
@@ -412,23 +413,39 @@ def handle_cloudfront(world: dict[str, Any], cmd: str, f: dict[str, Any]) -> Any
     raise SystemExit(f"fake aws: unhandled command 'cloudfront {cmd}'")
 
 
+def sync_filters(args: list[str]) -> list[tuple[str, str]]:
+    return [(a, args[i + 1]) for i, a in enumerate(args) if a in ("--exclude", "--include")]
+
+
+def sync_included(key: str, filters: list[tuple[str, str]]) -> bool:
+    """`aws s3 sync` filters: everything is included, then the last matching filter wins."""
+    included = True
+    for kind, pattern in filters:
+        if fnmatch.fnmatch(key, pattern):
+            included = kind == "--include"
+    return included
+
+
 def handle_s3_sync(world: dict[str, Any], args: list[str], delete: bool) -> None:
-    """`aws s3 sync <dir> s3://bucket[/prefix] [--delete] [--exclude p] [--cache-control v]`."""
+    """`aws s3 sync <dir> s3://bucket[/prefix] [--delete] [--exclude p | --include p]...
+    [--cache-control v] [--content-type v]`. Filters match paths relative to the source and
+    destination; excluded objects are neither uploaded nor deleted."""
     src, dest, *rest = args
-    flags = parse_flags(rest)
+    filters = sync_filters(rest)
     bucket, _, prefix = dest.removeprefix("s3://").partition("/")
     if bucket not in world["buckets"]:
         raise AwsError("NoSuchBucket", "ListObjectsV2", "The specified bucket does not exist")
     prefix = prefix.rstrip("/") + "/" if prefix else ""
-    exclude = flags.get("--exclude")
-    local = sorted(prefix + str(p.relative_to(src)) for p in Path(src).rglob("*") if p.is_file())
-    local = [k for k in local if not (exclude and fnmatch.fnmatch(k, exclude))]
+    relative = sorted(str(p.relative_to(src)) for p in Path(src).rglob("*") if p.is_file())
+    local = [prefix + k for k in relative if sync_included(k, filters)]
     keys: list[str] = world["buckets"][bucket]
     if delete:
         keys[:] = [
             k
             for k in keys
-            if not k.startswith(prefix) or k in local or (exclude and fnmatch.fnmatch(k, exclude))
+            if not k.startswith(prefix)
+            or k in local
+            or not sync_included(k.removeprefix(prefix), filters)
         ]
     keys.extend(k for k in local if k not in keys)
 
@@ -678,22 +695,31 @@ def handle(world: dict[str, Any], svc: str, cmd: str, f: dict[str, Any]) -> Any:
         sid = f["--secret-id"]
         if sid not in world["secrets"]:
             raise not_found(cmd, "Secrets Manager can't find the specified secret.")
+        # A secret seeded without a version gets a fixed first one.
+        version = world["secret_versions"].setdefault(sid, "00000000-0000-4000-8000-000000000001")
         if cmd == "describe-secret":
             return {
                 "Name": sid,
                 "ARN": f"arn:aws:secretsmanager:{REGION}:{ACCOUNT}:secret:{sid}-AbCdEf",
+                "VersionIdsToStages": {version: ["AWSCURRENT"]},
             }
         if cmd == "get-secret-value":
-            return {"Name": sid, "SecretString": world["secret_values"].get(sid, "{}")}
+            return {
+                "Name": sid,
+                "VersionId": version,
+                "SecretString": world["secret_values"].get(sid, "{}"),
+            }
         if cmd == "put-secret-value":
             value = f["--secret-string"]
             if not isinstance(json.loads(value), dict):
                 raise AwsError("InvalidParameterException", cmd, "not a JSON object")
             world["secret_values"][sid] = value
-            return {"Name": sid, "VersionId": "v2"}
+            world["secret_versions"][sid] = str(uuid.uuid4())
+            return {"Name": sid, "VersionId": world["secret_versions"][sid]}
         if cmd == "delete-secret":
             world["secrets"].remove(sid)
             world["secret_values"].pop(sid, None)
+            world["secret_versions"].pop(sid, None)
             return {"Name": sid}
 
     # ---- Resource Groups Tagging API (regional; IAM, budgets and schedules are not listed)

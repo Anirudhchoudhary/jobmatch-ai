@@ -3,9 +3,11 @@
 # Build the static frontend and publish it to the site bucket behind CloudFront. Run via
 # `make deploy-frontend`, after `make deploy` has created (and recorded) the distribution.
 #
-# Content-hashed assets (_next/static/) are cached for a year; everything else (HTML, the
-# RSC .txt payloads, favicon) is revalidated on every request, so a deploy shows up at once.
-# Objects no longer in the build are deleted. Ends with a CloudFront invalidation of /*.
+# Content-hashed assets (_next/static/) are cached for a year and kept across deploys, so a page
+# loaded before a deploy can still fetch the chunks it references. Everything else (HTML, the
+# RSC .txt payloads served as text/x-component, favicon) is revalidated on every request, so a
+# deploy shows up at once, and is deleted when no longer in the build. Ends with a CloudFront
+# invalidation of /*.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -33,10 +35,15 @@ OUT="$FRONTEND_DIR/out"
 [[ -f "$OUT/index.html" ]] || die "the build did not produce $OUT/index.html"
 
 log "uploading to s3://$SITE_BUCKET"
-# Hashed assets first, so new HTML never references a file that is not there yet.
-awsr s3 sync "$OUT/_next/static" "s3://$SITE_BUCKET/_next/static" --delete \
+# Hashed assets first, so new HTML never references a file that is not there yet. No --delete:
+# the names are content hashes, so old ones never clash and the set grows only per deploy.
+awsr s3 sync "$OUT/_next/static" "s3://$SITE_BUCKET/_next/static" \
   --cache-control "$IMMUTABLE" --only-show-errors
-awsr s3 sync "$OUT" "s3://$SITE_BUCKET" --delete --exclude "_next/static/*" \
+# RSC payloads: the Next.js client fetches these on navigation and expects this type.
+awsr s3 sync "$OUT" "s3://$SITE_BUCKET" --delete \
+  --exclude "*" --include "*.txt" --exclude "_next/static/*" \
+  --content-type text/x-component --cache-control no-cache --only-show-errors
+awsr s3 sync "$OUT" "s3://$SITE_BUCKET" --delete --exclude "_next/static/*" --exclude "*.txt" \
   --cache-control no-cache --only-show-errors
 
 INVALIDATION=$(awse cloudfront create-invalidation --distribution-id "$DISTRIBUTION_ID" \
