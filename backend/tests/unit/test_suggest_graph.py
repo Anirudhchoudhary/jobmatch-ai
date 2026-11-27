@@ -201,15 +201,20 @@ async def test_no_rejection_records_nothing(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 async def test_persist_failure_still_returns_suggestions(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from sqlalchemy.exc import OperationalError
+    from structlog.testing import capture_logs
 
     secret = "postgresql://user:hunter2@db/x"
-    await _run_suggest(
-        monkeypatch, [], ListRecorder(), save_error=OperationalError("stmt", {}, Exception(secret))
-    )
-    out = capsys.readouterr().out
-    assert "suggestions_persist_failed" in out
-    assert "OperationalError" in out
-    assert "hunter2" not in out
+    with capture_logs() as logs:
+        await _run_suggest(
+            monkeypatch,
+            [],
+            ListRecorder(),
+            save_error=OperationalError("stmt", {}, Exception(secret)),
+        )
+    failed = [e for e in logs if e["event"] == "suggestions_persist_failed"]
+    assert len(failed) == 1
+    assert failed[0]["error_type"] == "OperationalError"
+    assert "hunter2" not in repr(logs)
