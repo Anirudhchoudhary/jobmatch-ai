@@ -9,6 +9,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 from app.core.errors import ProviderError
 from app.llm.errors import log_provider_failure
+from app.observability.usage import record_cost
 
 
 @dataclass(frozen=True)
@@ -61,6 +62,7 @@ class BedrockReranker:
             except (ClientError, BotoCoreError, KeyError, TypeError) as exc:
                 log_provider_failure("bedrock", exc)
                 raise ProviderError("bedrock") from None
+            record_cost("bedrock:rerank", lambda s: s.bedrock_rerank_usd_per_query)
             return sorted(hits, key=lambda h: h.relevance or 0.0, reverse=True)
 
         return await asyncio.to_thread(call)

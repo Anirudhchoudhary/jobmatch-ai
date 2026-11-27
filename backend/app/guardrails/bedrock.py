@@ -1,10 +1,12 @@
 """Bedrock Guardrails (ApplyGuardrail) provider behind the Guardrail interface."""
 
 import asyncio
+import math
 import time
 from typing import TYPE_CHECKING, Any, Literal
 
 from app.guardrails.base import Action, GuardContext, GuardrailResult
+from app.observability.usage import record_cost
 
 if TYPE_CHECKING:
     from mypy_boto3_bedrock_runtime import BedrockRuntimeClient
@@ -45,6 +47,8 @@ class BedrockGuard:
         self._source = source
 
     def _apply(self, text: str) -> dict[str, Any]:
+        units = math.ceil(len(text) / 1000)
+        record_cost("bedrock:guardrails", lambda s: units * s.bedrock_guardrail_usd_per_unit)
         return dict(
             self._client.apply_guardrail(
                 guardrailIdentifier=self._guardrail_id,

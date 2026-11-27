@@ -1,0 +1,64 @@
+{
+  "id": "career_changer-02",
+  "category": "career_changer",
+  "ci": false,
+  "resume": "Adaeze Whitlock\nadaeze.whitlock@example.org | 614-555-0115 | Madison, WI\n\nSummary\nRegistered nurse with 10 years of hospital experience moving into health informatics. Knows clinical workflows from the inside.\n\nExperience\nCharge Nurse, St. Alder General Hospital | 2017 - 2025\n- Used the hospital's electronic health records (EHR) system daily to document care for 30 patients per shift\n- Trained 60 colleagues on a new EHR medication module and gathered their feedback for the vendor\n- Followed strict HIPAA privacy rules and audited records access for the ward\n- Produced monthly ward quality reports in Excel for the nursing director\n\nStaff Nurse, Redmere Community Clinic | 2015 - 2017\n- Supported a clinic data clean-up project that fixed 2,000 duplicate patient records\n- Wrote concise handover notes and care plans\n\nSkills\nEHR systems, HIPAA, clinical workflows, Excel reporting, SQL (online course), requirements workshops, training and documentation\n\nProjects\n- Course project: SQL queries on a sample hospital admissions dataset\n- Introductory Python for health data course\n\nEducation\nB.S.N. Nursing, Pellham Institute of Technology, 2015\nCertificate in Health Informatics (in progress)\nRegistered nurse licence, active\nReferences available on request. Open to hybrid or on-site work and able to start within one month.",
+  "jd": "Clinical Data Analyst - Meadowlark Health Systems\n\nAbout the role\nMeadowlark builds analytics for hospital networks. You will translate clinical needs into reports and data requirements. The team works in two-week sprints, holds weekly demos and keeps documentation next to the code. Engineers pair often, give honest feedback and set aside time every sprint to improve tooling, and new colleagues are paired with a buddy for their first month.\n\nResponsibilities\n- Gather requirements from clinicians\n- Build and validate reports\n- Support data quality improvement\n\nRequirements\n- Knowledge of electronic health records (EHR) systems\n- Understanding of HIPAA\n- SQL for reporting\n- Requirements gathering with clinical teams\n- HL7 or FHIR data standards\n- Excel reporting\n\nNice to have\n- Python\n- Tableau\n\nBenefits\n- Flexible working hours and a yearly learning budget\n- 25 days of paid leave plus public holidays\n- We review every application and reply within two weeks",
+  "expected": {
+    "matched": [
+      "EHR",
+      "HIPAA",
+      "Excel"
+    ],
+    "partial": [
+      "SQL",
+      "Requirements gathering",
+      "Python"
+    ],
+    "missing": [
+      "HL7 or FHIR",
+      "Tableau"
+    ],
+    "nice_to_have": [
+      "Python",
+      "Tableau"
+    ],
+    "score_band": "partial"
+  },
+  "attacks": {
+    "resume_injection": false,
+    "jd_injection": false
+  },
+  "pii_values": [],
+  "qa": [
+    {
+      "id": "q1",
+      "question": "How did the candidate use EHR systems?",
+      "kind": "answerable",
+      "expected_answer": "Daily at the ward, plus training 60 colleagues on a new medication module.",
+      "supporting": [
+        "Trained 60 colleagues on a new EHR medication module"
+      ],
+      "expect_refusal": false
+    },
+    {
+      "id": "q2",
+      "question": "Which data clean-up work has the candidate done?",
+      "kind": "answerable",
+      "expected_answer": "Fixed 2,000 duplicate patient records at a clinic.",
+      "supporting": [
+        "fixed 2,000 duplicate patient records"
+      ],
+      "expect_refusal": false
+    },
+    {
+      "id": "q3",
+      "question": "Does the candidate know the FHIR standard?",
+      "kind": "unanswerable",
+      "expected_answer": "FHIR and HL7 are not mentioned in the resume.",
+      "supporting": [],
+      "expect_refusal": true
+    }
+  ],
+  "notes": "Requirements gathering is evidenced only as training and feedback collection (partial). SQL is course-level (partial). A title-based matcher sees 'nurse' and scores near zero, but domain skills (EHR, HIPAA) are exactly what the JD wants."
+}

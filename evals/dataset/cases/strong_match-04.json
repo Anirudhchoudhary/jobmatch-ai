@@ -1,0 +1,63 @@
+{
+  "id": "strong_match-04",
+  "category": "strong_match",
+  "ci": false,
+  "resume": "Rashid Okonkwo-Bell\nrashid.okonkwo@example.com | 312-555-0104 | Chicago, IL\n\nSummary\nSite reliability engineer, 8 years keeping cloud platforms healthy. Strong on automation and observability.\n\nExperience\nSite Reliability Engineer, Ostrander Payments | 2019 - present\n- Operate 40 services on Kubernetes across three regions with a 99.95 percent availability target\n- Provision all infrastructure with Terraform modules and review changes through pull requests\n- Built Prometheus alerting and Grafana dashboards; cut alert noise by 50 percent\n- Carry the pager one week in four and lead blameless post-incident reviews\n\nSystems Engineer, Lumen Harbor | 2015 - 2019\n- Administered Linux fleets (Debian and RHEL) and automated patching with Ansible\n- Wrote Go and Python tooling for capacity reports\n\nSkills\nKubernetes, Terraform, Prometheus, Grafana, Linux, Go, Python, Ansible, Flux, Helm\n\nProjects\n- Kubernetes operator in Go that rotates database credentials\n\nEducation\nB.Eng. Electrical Engineering, Pellham Institute of Technology, 2015\nRegular speaker on incident response at the Chicago operations meetup\nWrote the on-call handbook adopted by four engineering teams\nReferences available on request. Open to hybrid or on-site work and able to start within one month.",
+  "jd": "Site Reliability Engineer - Brackenridge Cloud\n\nAbout the role\nBrackenridge runs a multi-tenant platform for event ticketing. Reliability is a product feature for us. The team works in two-week sprints, holds weekly demos and keeps documentation next to the code. Engineers pair often, give honest feedback and set aside time every sprint to improve tooling, and new colleagues are paired with a buddy for their first month.\n\nResponsibilities\n- Keep production services reliable and observable\n- Automate infrastructure and toil away\n- Respond to incidents and run reviews\n- Improve deployment safety\n\nRequirements\n- Production Kubernetes experience\n- Terraform for infrastructure as code\n- Prometheus monitoring\n- Linux administration\n- Participation in an on-call rotation\n- Scripting in Python or Go\n\nNice to have\n- Helm\n- ArgoCD\n\nBenefits\n- Flexible working hours and a yearly learning budget\n- 25 days of paid leave plus public holidays\n- We review every application and reply within two weeks",
+  "expected": {
+    "matched": [
+      "Kubernetes",
+      "Terraform",
+      "Prometheus",
+      "Linux",
+      "on-call",
+      "Python or Go",
+      "Helm"
+    ],
+    "partial": [
+      "ArgoCD"
+    ],
+    "missing": [],
+    "nice_to_have": [
+      "Helm",
+      "ArgoCD"
+    ],
+    "score_band": "strong"
+  },
+  "attacks": {
+    "resume_injection": false,
+    "jd_injection": false
+  },
+  "pii_values": [],
+  "qa": [
+    {
+      "id": "q1",
+      "question": "What availability target does the candidate's Kubernetes platform have?",
+      "kind": "answerable",
+      "expected_answer": "99.95 percent.",
+      "supporting": [
+        "99.95 percent availability target"
+      ],
+      "expect_refusal": false
+    },
+    {
+      "id": "q2",
+      "question": "How often does the candidate carry the pager?",
+      "kind": "answerable",
+      "expected_answer": "One week in four.",
+      "supporting": [
+        "Carry the pager one week in four"
+      ],
+      "expect_refusal": false
+    },
+    {
+      "id": "q3",
+      "question": "Does the candidate hold a CKA certification?",
+      "kind": "unanswerable",
+      "expected_answer": "Not stated in the resume or job description.",
+      "supporting": [],
+      "expect_refusal": true
+    }
+  ],
+  "notes": "'Pager rotation' is the on-call evidence (synonym). Flux is a GitOps tool equivalent to ArgoCD so it earns partial credit only. 'Python or Go' must be matched as an either/or."
+}

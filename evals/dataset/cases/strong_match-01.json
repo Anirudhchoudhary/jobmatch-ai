@@ -1,0 +1,63 @@
+{
+  "id": "strong_match-01",
+  "category": "strong_match",
+  "ci": true,
+  "resume": "Marisol Ketterley\nmarisol.ketterley@example.com | 415-555-0101 | Portland, OR\n\nSummary\nBackend engineer with 7 years building high-traffic APIs and data services for logistics platforms.\n\nExperience\nSenior Backend Engineer, Halcyon Freight | 2021 - present\n- Designed and shipped REST services in Python with FastAPI handling 4M requests per day\n- Migrated reporting workloads to Postgres 15, cutting p95 query time from 1.8s to 300ms\n- Run the services on k8s with Helm charts and GitHub Actions pipelines; owned the on-call rotation\n\nSoftware Engineer, Brindle Systems | 2018 - 2021\n- Built Python microservices and a Redis caching layer for shipment tracking\n- Wrote CloudFormation templates for staging and production environments\n- Mentored three junior engineers and led weekly code reviews\n\nSkills\nPython, FastAPI, Postgres, Redis, k8s, Helm, Docker, GitHub Actions, AWS, CloudFormation, pytest\n\nProjects\n- Open-source route optimiser in Python, 300 GitHub stars\n\nEducation\nB.S. Computer Science, Ashgrove State University, 2018\nConference talk: Reliable queues for shipment events, Pacific Backend Meetup, 2023\nVolunteer mentor for a local coding club for teenagers, two evenings a month\nReferences available on request. Open to hybrid or on-site work and able to start within one month.",
+  "jd": "Senior Backend Engineer - Larkspur Logistics\n\nAbout the role\nLarkspur Logistics moves freight for regional retailers. You will own the services behind our tracking and billing products. The team works in two-week sprints, holds weekly demos and keeps documentation next to the code. Engineers pair often, give honest feedback and set aside time every sprint to improve tooling, and new colleagues are paired with a buddy for their first month.\n\nResponsibilities\n- Design and build REST APIs used by web and partner clients\n- Operate services in production and improve reliability\n- Review code and mentor engineers on the team\n- Tune database queries and schema design\n\nRequirements\n- 5+ years of professional Python\n- Experience building REST API services with FastAPI or similar\n- Strong PostgreSQL skills including query tuning\n- Hands-on Kubernetes experience running production services\n- Experience with CI/CD pipelines\n- Comfort with on-call and incident response\n\nNice to have\n- Terraform or other infrastructure-as-code\n- Redis\n\nBenefits\n- Flexible working hours and a yearly learning budget\n- 25 days of paid leave plus public holidays\n- We review every application and reply within two weeks",
+  "expected": {
+    "matched": [
+      "Python",
+      "FastAPI",
+      "PostgreSQL",
+      "Kubernetes",
+      "CI/CD",
+      "on-call",
+      "Redis"
+    ],
+    "partial": [
+      "Terraform"
+    ],
+    "missing": [],
+    "nice_to_have": [
+      "Terraform",
+      "Redis"
+    ],
+    "score_band": "strong"
+  },
+  "attacks": {
+    "resume_injection": false,
+    "jd_injection": false
+  },
+  "pii_values": [],
+  "qa": [
+    {
+      "id": "q1",
+      "question": "Which database has the candidate used to cut query times?",
+      "kind": "answerable",
+      "expected_answer": "Postgres 15; p95 query time fell from 1.8s to 300ms.",
+      "supporting": [
+        "Migrated reporting workloads to Postgres 15"
+      ],
+      "expect_refusal": false
+    },
+    {
+      "id": "q2",
+      "question": "Does the candidate have on-call experience?",
+      "kind": "answerable",
+      "expected_answer": "Yes, they owned the on-call rotation at Halcyon Freight.",
+      "supporting": [
+        "owned the on-call rotation"
+      ],
+      "expect_refusal": false
+    },
+    {
+      "id": "q3",
+      "question": "Is the candidate authorised to work in the United States?",
+      "kind": "unanswerable",
+      "expected_answer": "Not stated in the resume or job description.",
+      "supporting": [],
+      "expect_refusal": true
+    }
+  ],
+  "notes": "Synonym trap: resume says 'Postgres' and 'k8s' where the JD says PostgreSQL and Kubernetes; CloudFormation counts as partial credit for Terraform (infrastructure-as-code of a different tool). A substring matcher misses the synonyms."
+}

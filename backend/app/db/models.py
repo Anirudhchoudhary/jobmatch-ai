@@ -2,16 +2,19 @@
 
 import uuid
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
+    ARRAY,
     Boolean,
     CheckConstraint,
     Computed,
     DateTime,
     ForeignKey,
     Index,
+    Numeric,
     Text,
     UniqueConstraint,
     false,
@@ -158,3 +161,50 @@ class UsageCounter(Base):
     kind: Mapped[str] = mapped_column(Text, primary_key=True)
     window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
     count: Mapped[int] = mapped_column()
+
+
+class RequestLog(Base):
+    """One row per /api request: status, latency and the LLM usage ledger."""
+
+    __tablename__ = "request_log"
+    __table_args__ = (Index("ix_request_log_created", "created_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    request_id: Mapped[str] = mapped_column(Text)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), default=None
+    )
+    route: Mapped[str] = mapped_column(Text)
+    method: Mapped[str] = mapped_column(Text)
+    status: Mapped[int] = mapped_column()
+    models: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), server_default=text("'{}'"), default=list
+    )
+    input_tokens: Mapped[int] = mapped_column(server_default=text("0"), default=0)
+    output_tokens: Mapped[int] = mapped_column(server_default=text("0"), default=0)
+    cache_read_tokens: Mapped[int] = mapped_column(server_default=text("0"), default=0)
+    cache_write_tokens: Mapped[int] = mapped_column(server_default=text("0"), default=0)
+    cost_usd: Mapped[Decimal] = mapped_column(
+        Numeric(12, 6), server_default=text("0"), default=Decimal(0)
+    )
+    cache_hit: Mapped[bool] = mapped_column(Boolean, server_default=false(), default=False)
+    latency_ms: Mapped[int] = mapped_column()
+    guardrails: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), server_default=text("'{}'"), default=list
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class SemanticCacheEntry(Base):
+    """A grounded chat answer keyed by user, document set and question embedding (72h TTL)."""
+
+    __tablename__ = "semantic_cache"
+    __table_args__ = (Index("ix_semantic_cache_user_docset", "user_id", "doc_set_hash"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    doc_set_hash: Mapped[str] = mapped_column(Text)
+    embedding: Mapped[list[float]] = mapped_column(Vector(EMBEDDING_DIM))
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

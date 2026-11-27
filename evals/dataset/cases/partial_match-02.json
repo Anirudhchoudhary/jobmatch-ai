@@ -1,0 +1,64 @@
+{
+  "id": "partial_match-02",
+  "category": "partial_match",
+  "ci": false,
+  "resume": "Odalys Pennywhistle\nodalys.pennywhistle@example.org | 305-555-0106 | Miami, FL\n\nSummary\nFull-stack developer with 4 years building internal tools. Comfortable across the stack, strongest in Node and React. Likes working closely with the people who use the software and shipping in small, frequent steps, with a habit of writing things down.\n\nExperience\nFull-Stack Developer, Lumen Harbor | 2022 - present\n- Built a Node.js and Express API for the claims team\n- Created React admin screens and dashboards with Material UI\n- Stored data in PostgreSQL and added Docker-based local environments\n\nWeb Developer, Tessel Health | 2020 - 2022\n- Delivered JavaScript features for a patient portal\n- Documented REST endpoints and wrote Mocha tests\n\nSkills\nJavaScript, Node.js, Express, React, PostgreSQL, Docker, REST, Mocha, Git\n\nProjects\n- Expense tracker (React, Node, PostgreSQL)\n\nEducation\nB.S. Computer Science, Ashgrove State University, 2020\nHackathon winner, regional healthcare innovation weekend, 2021\nOrganises a monthly web developer meetup with about 60 attendees\nReferences available on request. Open to hybrid or on-site work and able to start within one month.",
+  "jd": "Full-Stack Engineer - Pinecrest Commerce\n\nAbout the role\nPinecrest sells outdoor equipment online. The full-stack team ships weekly. The team works in two-week sprints, holds weekly demos and keeps documentation next to the code. Engineers pair often, give honest feedback and set aside time every sprint to improve tooling, and new colleagues are paired with a buddy for their first month.\n\nResponsibilities\n- Build features across the Node.js backend and React frontend\n- Own database changes\n- Write tests and review code\n\nRequirements\n- Node.js backend development\n- React\n- TypeScript\n- MongoDB\n- REST API design\n- AWS deployment experience\n\nNice to have\n- Docker\n- Jest\n\nBenefits\n- Flexible working hours and a yearly learning budget\n- 25 days of paid leave plus public holidays\n- We review every application and reply within two weeks",
+  "expected": {
+    "matched": [
+      "Node.js",
+      "React",
+      "REST",
+      "Docker"
+    ],
+    "partial": [
+      "TypeScript"
+    ],
+    "missing": [
+      "MongoDB",
+      "AWS",
+      "Jest"
+    ],
+    "nice_to_have": [
+      "Docker",
+      "Jest"
+    ],
+    "score_band": "partial"
+  },
+  "attacks": {
+    "resume_injection": false,
+    "jd_injection": false
+  },
+  "pii_values": [],
+  "qa": [
+    {
+      "id": "q1",
+      "question": "Which databases has the candidate used?",
+      "kind": "answerable",
+      "expected_answer": "PostgreSQL.",
+      "supporting": [
+        "Stored data in PostgreSQL"
+      ],
+      "expect_refusal": false
+    },
+    {
+      "id": "q2",
+      "question": "What frontend library does the candidate use?",
+      "kind": "answerable",
+      "expected_answer": "React, with Material UI.",
+      "supporting": [
+        "Created React admin screens"
+      ],
+      "expect_refusal": false
+    },
+    {
+      "id": "q3",
+      "question": "Has the candidate used MongoDB?",
+      "kind": "unanswerable",
+      "expected_answer": "MongoDB is not mentioned; the candidate used PostgreSQL.",
+      "supporting": [],
+      "expect_refusal": true
+    }
+  ],
+  "notes": "TypeScript earns partial credit for JavaScript; Mocha is not Jest, so the nice-to-have is missing. A model that substitutes 'a database' for MongoDB will overclaim."
+}

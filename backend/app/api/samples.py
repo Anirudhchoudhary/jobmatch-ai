@@ -15,6 +15,7 @@ from app.api.sse import sse_response
 from app.core.settings import Settings, get_settings
 from app.db.engine import get_sessionmaker
 from app.guardrails.factory import Guardrails, get_guardrails
+from app.guardrails.spend import ensure_budget
 from app.ingestion.blobs import BlobStore, get_blob_store, new_upload_key
 from app.ingestion.service import ingest_document
 from app.llm.embeddings import Embedder
@@ -66,6 +67,8 @@ async def post_samples(
     settings: Annotated[Settings, Depends(get_settings)],
     guardrails: Annotated[Guardrails, Depends(get_guardrails)],
 ) -> StreamingResponse:
+    # Global spend cap only; samples are not charged against the per-user allowance.
+    await ensure_budget(sessionmaker, user_id, settings=settings)
     return sse_response(
         ingest_samples(
             user_id=user_id,

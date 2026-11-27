@@ -1,5 +1,6 @@
 """Grounded chat endpoint (single-turn, stateless)."""
 
+from datetime import timedelta
 from typing import Annotated
 from uuid import UUID
 
@@ -9,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.api.deps import get_current_user_id
 from app.api.sse import sse_response
+from app.cache.semantic import SemanticCache
 from app.core.settings import Settings, get_settings
 from app.db.engine import get_sessionmaker
 from app.graphs.chat import ChatState, build_chat_graph, chat_events
@@ -34,12 +36,25 @@ async def stream_chat(
 ) -> StreamingResponse:
     await consume_or_refuse(sessionmaker, user_id, "chats", settings=settings)
     prompt = load_prompt("chat_system")
+    cache = (
+        SemanticCache(
+            sessionmaker,
+            threshold=settings.semantic_cache_threshold,
+            ttl=timedelta(hours=settings.semantic_cache_ttl_hours),
+        )
+        if settings.semantic_cache_enabled
+        else None
+    )
     graph = build_chat_graph(
         retriever,
         providers.chat_model,
         prompt,
         min_relevance=settings.min_relevance,
         guardrails=guardrails,
+        cache=cache,
+        # Intentionally the configured model even if the Sonnet fallback answered: the answer
+        # is still grounded on the same documents.
+        cache_model=settings.chat_model,
     )
     state: ChatState = {
         "user_id": user_id,
@@ -50,5 +65,8 @@ async def stream_chat(
         "guard_outcomes": [],
         "blocked_by": None,
         "verdict": None,
+        "query_embedding": None,
+        "cache_key": None,
+        "cached": None,
     }
     return sse_response(chat_events(graph, state, prompt_version=prompt.version))

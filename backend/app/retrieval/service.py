@@ -36,13 +36,30 @@ class Retriever:
         self._rrf_k = rrf_k
         self._top_n = top_n
 
-    async def candidates(self, user_id: UUID, query: str) -> list[RetrievedChunk]:
-        """Vector hits (``vector`` mode) or RRF of vector and full-text hits (otherwise)."""
+    @property
+    def embed_model(self) -> str:
+        return self._embedder.embed_model
+
+    async def embed_query(self, query: str) -> list[float]:
+        return await self._embedder.embed_query(query)
+
+    async def active_docs(self, user_id: UUID) -> list[UUID]:
+        """The user's ready document ids embedded by the current embedder."""
         async with self._sm() as session:
-            doc_ids = await active_doc_ids(session, user_id, embed_model=self._embedder.embed_model)
+            return await active_doc_ids(session, user_id, embed_model=self.embed_model)
+
+    async def candidates(
+        self, user_id: UUID, query: str, *, embedding: list[float] | None = None
+    ) -> list[RetrievedChunk]:
+        """Vector hits (``vector`` mode) or RRF of vector and full-text hits (otherwise).
+
+        ``embedding`` is the query's embedding when the caller already has it."""
+        async with self._sm() as session:
+            doc_ids = await active_doc_ids(session, user_id, embed_model=self.embed_model)
             if not doc_ids:
                 return []
-            embedding = await self._embedder.embed_query(query)
+            if embedding is None:
+                embedding = await self._embedder.embed_query(query)
             vec = await vector_search(
                 session, user_id=user_id, doc_ids=doc_ids, query_embedding=embedding, k=self._k
             )

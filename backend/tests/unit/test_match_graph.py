@@ -13,6 +13,7 @@ from app.core.errors import ProviderError
 from app.graphs import match as match_module
 from app.graphs.match import analysis_events
 from app.llm.structured import StructuredOutputError
+from app.observability.usage import usage_scope
 from app.retrieval.search import RetrievedChunk
 from app.schemas.match import (
     AnalysisProgress,
@@ -226,7 +227,9 @@ async def test_cache_hit_skips_analyst(repo: dict[str, Any]) -> None:
     done = first[-1][1]
     repo["cached"] = (done.analysis_id, repo["saved"][0]["result"])
     analyst = FakeAnalyst(REQUIREMENTS)
-    events = await run(analyst)
+    with usage_scope() as usage:
+        events = await run(analyst)
+    assert usage.cache_hit is True
     assert [n for n, _ in events] == ["progress", "done"]
     hit = events[-1][1]
     assert isinstance(hit, MatchAnalysis)

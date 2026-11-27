@@ -9,6 +9,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.secrets import load_secret
 from app.db.models import EMBEDDING_DIM
+from app.llm.pricing import ModelPrice
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 ENV_FILE = _REPO_ROOT / ".env"
@@ -59,12 +60,26 @@ class Settings(_Bootstrap):
     rerank_model_arn: str | None = None
     bedrock_timeout_s: float = 10.0
 
+    # Pricing (USD)
+    model_prices: dict[str, ModelPrice] = {
+        "claude-haiku-5-5": ModelPrice(input=0.10, output=0.50, cache_read=0.01, cache_write=0.125),
+        "claude-sonnet-5-5": ModelPrice(input=2.0, output=10.0, cache_read=0.10, cache_write=2.50),
+    }
+    bedrock_embed_usd_per_mtok: float = 0.02
+    bedrock_rerank_usd_per_query: float = 0.001
+    bedrock_guardrail_usd_per_unit: float = 0.00025
+
     # Retrieval
     retrieval_mode: Literal["vector", "hybrid"] = "hybrid"
     retrieval_k: int = 20
     rrf_k: int = 60
     rerank_top_n: int = 6
     min_relevance: float = 0.2
+
+    # Semantic cache for grounded chat answers
+    semantic_cache_enabled: bool = True
+    semantic_cache_threshold: float = 0.95
+    semantic_cache_ttl_hours: int = 72
 
     # Uploads
     upload_dir: Path = _REPO_ROOT / "var" / "uploads"
@@ -94,6 +109,15 @@ class Settings(_Bootstrap):
     allowance_suggestions: int = 10
     burst_per_minute: int = 10
 
+    # Langfuse tracing (off unless both keys are set)
+    langfuse_public_key: SecretStr | None = None
+    langfuse_secret_key: SecretStr | None = None
+    langfuse_host: str = "https://cloud.langfuse.com"
+
+    # Global backstop: refuse requests once today's logged model + Bedrock cost reaches this
+    # (None = off)
+    daily_spend_cap_usd: float | None = 1.0
+
     @model_validator(mode="after")
     def _bedrock_guard_needs_numbered_version(self) -> "Settings":
         if self.guard_bedrock != "off" and (
@@ -105,6 +129,12 @@ class Settings(_Bootstrap):
                 "BEDROCK_GUARDRAIL_ID and a numbered BEDROCK_GUARDRAIL_VERSION "
                 "are required when GUARD_BEDROCK is on"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _langfuse_keys_together(self) -> "Settings":
+        if (self.langfuse_public_key is None) != (self.langfuse_secret_key is None):
+            raise ValueError("LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY must be set together")
         return self
 
     @model_validator(mode="after")

@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from structlog.testing import capture_logs
 
 from app.api.sse import sse_stream
+from app.cache.semantic import CachedAnswer
 from app.core.errors import ProviderError
 from app.core.settings import GuardMode, Settings
 from app.graphs.chat import ChatState, build_chat_graph, chat_events
@@ -26,7 +27,7 @@ from app.guardrails.factory import Guardrails, build_guardrails
 from app.guardrails.pipeline import GuardrailPipeline, GuardStep, NullRecorder
 from app.llm.prompts import load_prompt
 from app.retrieval.search import RetrievedChunk
-from app.schemas.chat import ChatDone, ChatProgress, TokenEvent, Verdict
+from app.schemas.chat import ChatDone, ChatProgress, Citation, TokenEvent, Verdict
 from tests.fixtures.guardrails import ListRecorder, RaisingGuard, StaticGuard
 from tests.fixtures.structured import ScriptedStructuredModel
 
@@ -102,6 +103,9 @@ def state() -> ChatState:
         "guard_outcomes": [],
         "blocked_by": None,
         "verdict": None,
+        "query_embedding": None,
+        "cache_key": None,
+        "cached": None,
     }
 
 
@@ -122,6 +126,7 @@ async def run(
     model: BaseChatModel,
     guardrails: Guardrails | None = None,
     question: str = QUESTION,
+    cache: "FakeCache | None" = None,
 ) -> list[tuple[str, BaseModel]]:
     prompt = load_prompt("chat_system")
     graph = build_chat_graph(
@@ -130,6 +135,8 @@ async def run(
         prompt,
         min_relevance=0.2,
         guardrails=guardrails or offline_guardrails(),
+        cache=cache,
+        cache_model="test-model",
     )
     st = state()
     st["question"] = question
@@ -500,3 +507,173 @@ async def test_groundedness_guard_error_fails_open_with_verdict() -> None:
     done = events[-1][1]
     assert isinstance(done, ChatDone)
     assert [g.action for g in done.guardrails] == ["error"]
+
+
+# --- semantic cache ---------------------------------------------------------------------
+
+EMBEDDING = [1.0] + [0.0] * 1023
+CACHED = CachedAnswer(
+    answer="Cached Kafka [r1].",
+    citations=[
+        Citation(
+            label="r1",
+            chunk_id=CHUNK.chunk_id,
+            doc_type="resume",
+            section="Experience",
+            text=CHUNK.text,
+        )
+    ],
+    invalid_citations=[],
+)
+
+
+class CacheRetriever(FakeRetriever):
+    """Fake retriever with the embedding/doc-set hooks the cache nodes need."""
+
+    def __init__(self, chunks: list[RetrievedChunk], *, explode: bool = False) -> None:
+        super().__init__(chunks)
+        self.explode = explode
+        self.embed_calls: list[str] = []
+        self.seen_embeddings: list[list[float] | None] = []
+
+    @property
+    def embed_model(self) -> str:
+        return "hash:v1:1024"
+
+    async def embed_query(self, query: str) -> list[float]:
+        self.embed_calls.append(query)
+        return EMBEDDING
+
+    async def active_docs(self, user_id: object) -> list[object]:
+        return [CHUNK.doc_id]
+
+    async def candidates(  # type: ignore[override]
+        self, user_id: object, query: str, *, embedding: list[float] | None = None
+    ) -> list[RetrievedChunk]:
+        if self.explode:
+            raise AssertionError("retriever must not be called")
+        self.seen_embeddings.append(embedding)
+        return list(self.chunks)
+
+
+class FakeCache:
+    def __init__(self, hit: CachedAnswer | None = None) -> None:
+        self.hit = hit
+        self.lookups: list[tuple[object, str, list[float]]] = []
+        self.stored: list[tuple[object, str, list[float], CachedAnswer]] = []
+
+    async def lookup(
+        self, user_id: object, key: str, embedding: list[float]
+    ) -> CachedAnswer | None:
+        self.lookups.append((user_id, key, embedding))
+        return self.hit
+
+    async def store(
+        self, user_id: object, key: str, embedding: list[float], answer: CachedAnswer
+    ) -> None:
+        self.stored.append((user_id, key, embedding, answer))
+
+
+async def test_cache_hit_skips_retrieval_and_generation() -> None:
+    from app.observability.usage import usage_scope
+
+    cache = FakeCache(CACHED)
+    retriever = CacheRetriever([CHUNK], explode=True)
+    with usage_scope() as usage:
+        events = await run(retriever, ExplodingModel(messages=iter([])), cache=cache)
+    assert [n for n, _ in events] == ["progress", "progress", "token", "verdict", "done"]
+    assert steps(events) == ["checking_input", "cache_hit"]
+    assert tokens(events) == [CACHED.answer]
+    assert events[-2][1] == Verdict(grounded=True, action="allow", unsupported_claims=[], mode=None)
+    done = events[-1][1]
+    assert isinstance(done, ChatDone)
+    assert done.cached is True
+    assert done.answer == CACHED.answer
+    assert done.citations == CACHED.citations
+    assert done.invalid_citations == []
+    assert done.refused is False
+    assert len(cache.lookups) == 1
+    assert retriever.embed_calls == [QUESTION]
+    assert cache.stored == []
+    assert usage.cache_hit is True
+
+
+async def test_cache_miss_reuses_query_embedding() -> None:
+    cache = FakeCache()
+    retriever = CacheRetriever([CHUNK])
+    events = await run(retriever, fake_model("Alex used Kafka [r1]."), cache=cache)
+    assert steps(events) == [
+        "checking_input",
+        "retrieving",
+        "reranking",
+        "generating",
+        "checking_answer",
+    ]
+    done = events[-1][1]
+    assert isinstance(done, ChatDone)
+    assert done.cached is False
+    assert retriever.embed_calls == [QUESTION]
+    assert retriever.seen_embeddings == [EMBEDDING]
+
+
+async def test_flagged_input_bypasses_cache() -> None:
+    flag = StaticGuard(GuardrailResult("injection_rules", "self", "flag", "pattern:x", 0))
+    guardrails = Guardrails(
+        upload=GuardrailPipeline("upload", [], NullRecorder()),
+        chat_input=GuardrailPipeline("chat_input", [GuardStep(flag, "monitor")], NullRecorder()),
+        output=GuardrailPipeline("output", [], NullRecorder()),
+    )
+    cache = FakeCache(CACHED)
+    retriever = CacheRetriever([CHUNK])
+    events = await run(retriever, fake_model("Alex used Kafka [r1]."), guardrails, cache=cache)
+    assert cache.lookups == []
+    assert cache.stored == []
+    assert retriever.embed_calls == []
+    done = events[-1][1]
+    assert isinstance(done, ChatDone)
+    assert done.cached is False
+    assert done.answer == "Alex used Kafka [r1]."
+
+
+async def test_grounded_answer_is_stored() -> None:
+    cache = FakeCache()
+    events = await run(CacheRetriever([CHUNK]), fake_model("Alex used Kafka [r1]."), cache=cache)
+    done = events[-1][1]
+    assert isinstance(done, ChatDone)
+    ((user_id, key, embedding, stored),) = cache.stored
+    assert key == cache.lookups[0][1]
+    assert embedding == EMBEDDING
+    assert stored.answer == "Alex used Kafka [r1]."
+    assert stored.citations == done.citations
+    assert [c.chunk_id for c in stored.citations] == [CHUNK.chunk_id]
+    assert stored.invalid_citations == []
+
+
+async def test_ungrounded_or_refused_not_stored() -> None:
+    ungrounded = FakeCache()
+    events = await run(
+        CacheRetriever([CHUNK]),
+        fake_model("Alex led a team of fifty engineers at Google."),
+        cache=ungrounded,
+    )
+    verdict = events[-2][1]
+    assert isinstance(verdict, Verdict) and verdict.grounded is False
+    assert ungrounded.stored == []
+
+    refused = FakeCache()
+    events = await run(CacheRetriever([]), ExplodingModel(messages=iter([])), cache=refused)
+    done = events[-1][1]
+    assert isinstance(done, ChatDone) and done.refused is True
+    assert refused.stored == []
+
+
+def test_doc_set_key_is_order_independent_and_versioned() -> None:
+    from app.cache.semantic import doc_set_key
+
+    a, b = uuid4(), uuid4()
+    k = doc_set_key([a, b], embed_model="e", prompt_version="p", model="m")
+    assert k == doc_set_key([b, a], embed_model="e", prompt_version="p", model="m")
+    assert re.fullmatch(r"[0-9a-f]{64}", k)
+    assert k != doc_set_key([a, b], embed_model="e", prompt_version="p2", model="m")
+    assert k != doc_set_key([a, b], embed_model="e", prompt_version="p", model="m2")
+    assert k != doc_set_key([a], embed_model="e", prompt_version="p", model="m")

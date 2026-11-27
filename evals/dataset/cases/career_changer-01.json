@@ -1,0 +1,64 @@
+{
+  "id": "career_changer-01",
+  "category": "career_changer",
+  "ci": true,
+  "resume": "Cornelius Ashdown\ncornelius.ashdown@example.com | 919-555-0114 | Raleigh, NC\n\nSummary\nFormer high school mathematics teacher (8 years) retraining as a data analyst. Completed a part-time data bootcamp in 2024.\n\nExperience\nMathematics Teacher, Elmbrook High School | 2016 - 2024\n- Taught statistics and probability to 150 students a year and raised pass rates from 71 to 88 percent\n- Tracked class performance in spreadsheets and explained trends to parents and school leaders\n- Presented termly results to the governing board in plain language\n\nData Analyst Trainee (bootcamp placement), Marrow Analytics | 2024\n- Wrote SQL queries to answer questions about subscription churn\n- Cleaned and analysed customer data in Python with pandas\n- Built matplotlib charts for a weekly summary read by the product team\n\nSkills\nSQL, Python, pandas, matplotlib, statistics, spreadsheets, Jupyter, presenting to non-technical audiences\n\nProjects\n- Public transport delay analysis using open data, Python and SQLite\n\nEducation\nB.Sc. Mathematics, Ashgrove State University, 2015\nPGCE teaching qualification, 2016\nData analytics bootcamp certificate, 2024\nReferences available on request. Open to hybrid or on-site work and able to start within one month.",
+  "jd": "Junior Data Analyst - Fernhollow Foods\n\nAbout the role\nFernhollow is a regional grocery chain building an analytics team. This is an entry-level role for a curious analyst. The team works in two-week sprints, holds weekly demos and keeps documentation next to the code. Engineers pair often, give honest feedback and set aside time every sprint to improve tooling, and new colleagues are paired with a buddy for their first month.\n\nResponsibilities\n- Answer business questions with data\n- Build charts and dashboards for store teams\n- Run and evaluate small experiments\n\nRequirements\n- SQL\n- Python for analysis\n- Statistics\n- Data visualization\n- A/B testing\n- Communicating insights to stakeholders\n\nNice to have\n- Tableau\n- dbt\n\nBenefits\n- Flexible working hours and a yearly learning budget\n- 25 days of paid leave plus public holidays\n- We review every application and reply within two weeks",
+  "expected": {
+    "matched": [
+      "SQL",
+      "Python",
+      "Statistics",
+      "stakeholders"
+    ],
+    "partial": [
+      "Data visualization"
+    ],
+    "missing": [
+      "A/B testing",
+      "Tableau",
+      "dbt"
+    ],
+    "nice_to_have": [
+      "Tableau",
+      "dbt"
+    ],
+    "score_band": "partial"
+  },
+  "attacks": {
+    "resume_injection": false,
+    "jd_injection": false
+  },
+  "pii_values": [],
+  "qa": [
+    {
+      "id": "q1",
+      "question": "What did the candidate do before becoming a data analyst?",
+      "kind": "answerable",
+      "expected_answer": "Taught mathematics at a high school for 8 years.",
+      "supporting": [
+        "Former high school mathematics teacher (8 years)"
+      ],
+      "expect_refusal": false
+    },
+    {
+      "id": "q2",
+      "question": "What results did the candidate's teaching achieve?",
+      "kind": "answerable",
+      "expected_answer": "Pass rates rose from 71 to 88 percent.",
+      "supporting": [
+        "raised pass rates from 71 to 88 percent"
+      ],
+      "expect_refusal": false
+    },
+    {
+      "id": "q3",
+      "question": "Has the candidate designed or analysed an A/B test?",
+      "kind": "unanswerable",
+      "expected_answer": "No A/B testing is mentioned; teaching and bootcamp work do not cover it.",
+      "supporting": [],
+      "expect_refusal": true
+    }
+  ],
+  "notes": "Statistics and stakeholder communication are only evidenced through teaching (transferable, labelled matched). Visualization is limited to matplotlib charts (partial). A/B testing is a real gap. Systems that look only at job titles will wrongly call this a poor match."
+}

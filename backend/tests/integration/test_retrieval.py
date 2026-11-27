@@ -1,3 +1,4 @@
+import tempfile
 import warnings
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
@@ -258,3 +259,29 @@ async def test_quarantined_chunk_excluded_from_retrieval_and_analysis(
     assert vec
     for chunks in (vec, txt, loaded.resume):
         assert all("Ignore all previous" not in c.text for c in chunks)
+
+
+async def test_cross_document_ties_order_by_doc_type(world: World) -> None:
+    """Identical text in a resume and a JD ties exactly; the JD ('jd' < 'resume') comes first
+    on every run, whatever the random document ids are."""
+    tie = "Zyxquartz kafka streaming platform engineer building resilient data pipelines"
+    user = uuid4()
+    async with world.sm() as s:
+        s.add(User(id=user))
+        await s.commit()
+    try:
+        blobs = LocalBlobStore(Path(tempfile.mkdtemp()))
+        await _ingest(world.sm, blobs, user, "resume", tie)
+        await _ingest(world.sm, blobs, user, "jd", tie)
+        emb = await world.embedder.embed_query(tie)
+        async with world.sm() as s:
+            ids = await active_doc_ids(s, user, embed_model=world.embedder.embed_model)
+            vec = await vector_search(s, user_id=user, doc_ids=ids, query_embedding=emb, k=20)
+            txt = await text_search(s, user_id=user, doc_ids=ids, query="Zyxquartz", k=20)
+        for hits in (vec, txt):
+            assert [h.doc_type for h in hits[:2]] == ["jd", "resume"]
+            assert hits[0].score == hits[1].score  # an exact tie, not near-equal
+    finally:
+        async with world.sm() as s:
+            await s.execute(text("DELETE FROM users WHERE id = :i"), {"i": user})
+            await s.commit()
