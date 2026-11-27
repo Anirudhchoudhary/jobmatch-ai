@@ -94,27 +94,38 @@ def build_guardrails(
     )
 
 
+def guard_models(s: Settings) -> list[BaseChatModel] | None:
+    if s.llm_provider != "anthropic":
+        return None
+    return [
+        make_chat_model(
+            s,
+            model=s.chat_model,
+            max_tokens=s.guard_max_tokens,
+            timeout_s=s.guard_timeout_s,
+            effort="low",
+        )
+    ]
+
+
+def bedrock_runtime_client(s: Settings) -> Any | None:
+    if s.guard_bedrock == "off":
+        return None
+    config = Config(
+        region_name=s.aws_region,
+        read_timeout=s.bedrock_timeout_s,
+        connect_timeout=3,
+        retries={"mode": "adaptive", "max_attempts": 4},
+    )
+    return boto3.client("bedrock-runtime", config=config)
+
+
 @lru_cache
 def get_guardrails() -> Guardrails:
     s = get_settings()
-    models: list[BaseChatModel] | None = None
-    if s.llm_provider == "anthropic":
-        models = [
-            make_chat_model(
-                s,
-                model=s.chat_model,
-                max_tokens=s.guard_max_tokens,
-                timeout_s=s.guard_timeout_s,
-                effort="low",
-            )
-        ]
-    client: Any | None = None
-    if s.guard_bedrock != "off":
-        config = Config(
-            region_name=s.aws_region,
-            read_timeout=s.bedrock_timeout_s,
-            connect_timeout=3,
-            retries={"mode": "adaptive", "max_attempts": 4},
-        )
-        client = boto3.client("bedrock-runtime", config=config)
-    return build_guardrails(s, DbRecorder(get_sessionmaker()), models=models, bedrock_client=client)
+    return build_guardrails(
+        s,
+        DbRecorder(get_sessionmaker()),
+        models=guard_models(s),
+        bedrock_client=bedrock_runtime_client(s),
+    )
