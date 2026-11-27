@@ -6,7 +6,7 @@ RUN2 = && $(UV) run
 DATABASE_URL ?= postgresql+psycopg://jobmatch:jobmatch@localhost:5432/jobmatch
 export DATABASE_URL
 
-.PHONY: install lint fmt typecheck test test-integration env up down migrate db-shell setup run logs samples retrieval-eval retrieval-eval-live report
+.PHONY: install lint fmt typecheck test test-integration test-evals env up down migrate db-shell setup run logs samples retrieval-eval retrieval-eval-live report
 
 install:
 	cd backend && $(UV) sync --locked
@@ -25,6 +25,10 @@ test:
 
 test-integration:
 	$(RUN) pytest -m integration
+
+# Needs the optional `evals` group (DeepEval); offline, never calls a model.
+test-evals:
+	cd backend && $(UV) run --group evals pytest -p no:deepeval tests/unit/evals -q
 
 env:
 	cd backend && $(UV) run python scripts/gen_env.py --secret-id $${SECRET_ID:-jobmatch/dev} --out ../.env

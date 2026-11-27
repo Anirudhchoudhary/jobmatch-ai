@@ -64,6 +64,12 @@ strict = true
 files = ["app", "evals"]
 plugins = ["pydantic.mypy"]
 
+# deepeval lives in the optional `evals` group and is untyped: absent in the default env,
+# Any-typed when present. Scoped so the rest of the strict config is untouched.
+[[tool.mypy.overrides]]
+module = ["deepeval", "deepeval.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
