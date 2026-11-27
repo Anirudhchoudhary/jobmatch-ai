@@ -28,12 +28,13 @@ export function Documents({ onReady }: { onReady: () => void }) {
     onReadyRef.current = onReady;
   });
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (changed = false) => {
     try {
       const { documents } = await apiGet<DocumentList>("/api/documents");
       setDocs(documents);
       const both = ["resume", "jd"].every((t) => documents.some((d) => d.doc_type === t));
-      if (both && !notified.current) {
+      // Fire once on first load, then again whenever a replacement succeeds.
+      if (both && (changed || !notified.current)) {
         notified.current = true;
         onReadyRef.current();
       }
@@ -54,7 +55,7 @@ export function Documents({ onReady }: { onReady: () => void }) {
     setSteps({});
     try {
       await task();
-      await refresh();
+      await refresh(true);
     } catch (e) {
       setError(messageOf(e));
     } finally {

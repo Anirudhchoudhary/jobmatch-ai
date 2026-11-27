@@ -3,14 +3,15 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
-import { Card } from "@/components/ui/Card";
+import { Analysis } from "@/components/Analysis";
 import { Documents } from "@/components/Documents";
 import { useSession } from "@/lib/session";
 
 export default function Workspace() {
   const router = useRouter();
   const { user, loading, signOut } = useSession();
-  const [ready, setReady] = useState(false);
+  // Bumped each time both documents are (re)loaded; Analysis offers a re-run when it changes.
+  const [docsVersion, setDocsVersion] = useState(0);
 
   useEffect(() => {
     // Static export has no server redirects, so signed-out visitors are sent home on the client.
@@ -38,12 +39,9 @@ export default function Workspace() {
           </Button>
         </div>
       </header>
-      <Documents onReady={() => setReady(true)} />
-      {ready ? (
-        <Card className="mt-4">
-          <p role="status">Ready. Both documents are loaded; analysis arrives next.</p>
-        </Card>
-      ) : null}
+      <Documents onReady={() => setDocsVersion((v) => v + 1)} />
+      {docsVersion > 0 ? <Analysis docsVersion={docsVersion} /> : null}
+      {/* Chat (Task 8) mounts here, below the results. */}
     </main>
   );
 }
