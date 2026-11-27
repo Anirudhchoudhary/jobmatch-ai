@@ -45,6 +45,7 @@ export async function errorFromResponse(res: Response): Promise<ApiError> {
 async function request<T>(path: string, init: RequestInit): Promise<T> {
   const res = await fetch(path, { ...init, credentials: "same-origin" });
   if (!res.ok) throw await errorFromResponse(res);
+  if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
 }
 

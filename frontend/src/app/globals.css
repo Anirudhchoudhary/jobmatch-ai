@@ -1,24 +1,56 @@
 @import "tailwindcss";
 
+/* Design tokens shared by every screen. Use the Tailwind names (bg-brand, text-muted, ...). */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --surface: #ffffff;
+  --surface-muted: #f1f5f9;
+  --border: #cbd5e1;
+  --muted: #475569;
+  --brand: #1d4ed8;
+  --brand-hover: #1e40af;
+  --brand-contrast: #ffffff;
+  --danger: #b91c1c;
+  --danger-soft: #fef2f2;
+  --focus: #1d4ed8;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0b1220;
+    --foreground: #e2e8f0;
+    --surface: #111a2e;
+    --surface-muted: #19243b;
+    --border: #334155;
+    --muted: #94a3b8;
+    --brand: #60a5fa;
+    --brand-hover: #93c5fd;
+    --brand-contrast: #0b1220;
+    --danger: #fca5a5;
+    --danger-soft: #3b1219;
+    --focus: #93c5fd;
+  }
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-border: var(--border);
+  --color-muted: var(--muted);
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-contrast: var(--brand-contrast);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-focus: var(--focus);
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: var(--font-sans);
 }
