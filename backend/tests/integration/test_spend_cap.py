@@ -164,3 +164,31 @@ async def test_chat_api_at_capacity_returns_503(
         resp = await client.post("/api/stream/chat", json={"question": "What work has she done?"})
     assert resp.status_code == 503
     assert resp.json()["error"]["code"] == "demo_at_capacity"
+
+
+async def test_samples_api_at_capacity_returns_503(
+    sm: async_sessionmaker,  # type: ignore[type-arg]
+    user_id: UUID,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DAILY_SPEND_CAP_USD", "0")
+    get_settings.cache_clear()
+    app = create_app()
+    providers = Providers(
+        HashEmbedder(),
+        NoopReranker(),
+        GenericFakeChatModel(messages=iter(AIMessage("x") for _ in range(5))),
+        ladder(),
+        HeuristicAnalyst(),
+    )
+    app.dependency_overrides[get_current_user_id] = lambda: user_id
+    app.dependency_overrides[get_sessionmaker] = lambda: sm
+    app.dependency_overrides[get_blob_store] = lambda: LocalBlobStore(tmp_path)
+    app.dependency_overrides[get_providers] = lambda: providers
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        resp = await client.post("/api/samples")
+    assert resp.status_code == 503
+    assert resp.json()["error"]["code"] == "demo_at_capacity"

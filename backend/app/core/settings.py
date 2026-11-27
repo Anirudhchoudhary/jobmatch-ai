@@ -114,7 +114,8 @@ class Settings(_Bootstrap):
     langfuse_secret_key: SecretStr | None = None
     langfuse_host: str = "https://cloud.langfuse.com"
 
-    # Global backstop: refuse all requests once today's logged LLM cost reaches this (None = off)
+    # Global backstop: refuse requests once today's logged model + Bedrock cost reaches this
+    # (None = off)
     daily_spend_cap_usd: float | None = 1.0
 
     @model_validator(mode="after")

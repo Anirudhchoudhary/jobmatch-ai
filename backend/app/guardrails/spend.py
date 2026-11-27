@@ -1,4 +1,4 @@
-"""Global daily spend cap: a backstop that refuses requests once today's LLM cost hits the cap."""
+"""Global daily spend cap: refuses requests once today's model and Bedrock cost hits the cap."""
 
 from datetime import UTC, datetime
 from uuid import UUID

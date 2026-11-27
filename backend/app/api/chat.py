@@ -52,6 +52,8 @@ async def stream_chat(
         min_relevance=settings.min_relevance,
         guardrails=guardrails,
         cache=cache,
+        # Intentionally the configured model even if the Sonnet fallback answered: the answer
+        # is still grounded on the same documents.
         cache_model=settings.chat_model,
     )
     state: ChatState = {

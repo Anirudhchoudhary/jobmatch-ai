@@ -62,6 +62,7 @@ def _app(writer: RequestLogWriter) -> Starlette:
     app = Starlette(
         routes=[
             Route("/api/ok", ok),
+            Route("/api/uploads/{key:path}", ok),
             Route("/api/boom", boom),
             Route("/api/stream", stream),
             Route("/health", health),
@@ -87,6 +88,23 @@ async def test_logs_api_request_with_usage() -> None:
     assert e.request_id == resp.headers["x-request-id"]
     assert e.models == ("m1",) and e.input_tokens == 10 and e.cost_usd == 0.25
     assert e.cache_read_tokens == 2 and e.cache_write_tokens == 1 and e.latency_ms >= 0
+
+
+async def test_path_param_route_logs_template() -> None:
+    w = ListWriter()
+    async with _client(_app(w)) as c:
+        assert (await c.get("/api/uploads/u1/secret.pdf")).status_code == 200
+    (e,) = w.entries
+    assert e.route == "/api/uploads/{key:path}"
+
+
+async def test_unmatched_api_path_logs_constant() -> None:
+    w = ListWriter()
+    async with _client(_app(w)) as c:
+        assert (await c.get("/api/jane@example.com")).status_code == 404
+    (e,) = w.entries
+    assert e.route == "<unmatched>"
+    assert e.status == 404
 
 
 async def test_skips_non_api_paths() -> None:

@@ -1,3 +1,4 @@
+import json
 import logging
 
 import pytest
@@ -98,11 +99,12 @@ def test_uvicorn_access_percent_encoded_pii_end_to_end(
         200,
     )
     out = capsys.readouterr().out
-    assert "jane" not in out
-    assert "example.com" not in out
-    assert "415" not in out
-    assert "[EMAIL]" in out
-    assert "[PHONE]" in out
+    event = str(json.loads(out)["event"])
+    assert "jane" not in event
+    assert "example.com" not in event
+    assert "415" not in event
+    assert "[EMAIL]" in event
+    assert "[PHONE]" in event
 
 
 @pytest.mark.usefixtures("presidio_engine")

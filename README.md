@@ -236,7 +236,7 @@ Cost is computed per LLM call from the token counts reported by the provider. Cl
 
 ### Spend cap
 
-`DAILY_SPEND_CAP_USD` (default 1.0) is a backstop. Before a chat, upload, suggestion or fresh analysis request runs (cached analyses skip the check, because it runs only on a cache miss), the total `cost_usd` logged since 00:00 UTC is compared with the cap. At or over the cap the request is refused with HTTP 503, code `demo_at_capacity` and the message "The demo is at capacity today. Please try again tomorrow."; a `spend_cap` guardrail event is recorded. The environment variable cannot express "no cap", so set a large value to disable it.
+`DAILY_SPEND_CAP_USD` (default 1.0) is a backstop. Before a chat, upload, sample, suggestion or fresh analysis request runs (cached analyses skip the check, because it runs only on a cache miss), the total `cost_usd` logged since 00:00 UTC is compared with the cap. At or over the cap the request is refused with HTTP 503, code `demo_at_capacity` and the message "The demo is at capacity today. Please try again tomorrow."; a `spend_cap` guardrail event is recorded. The environment variable cannot express "no cap", so set a large value to disable it.
 
 ### Semantic cache
 
@@ -286,6 +286,7 @@ No guardrail events recorded.
 
 ### Known limits
 
+- The cost of a failed partial stream is not recorded (usage is captured on model completion, not on error), so such spend is not counted toward the cap or the report.
 - The spend cap counts only finished requests; spend from requests still in flight is not included.
 - Langfuse flushes on shutdown only until Phase 7, so traces can appear late.
 - Presidio masking adds latency to traced requests.

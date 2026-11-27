@@ -82,13 +82,22 @@ class DbRequestLogWriter:
             log.warning("request_log_write_failed", error_type=type(exc).__name__)
 
 
+_UNMATCHED_ROUTE = "<unmatched>"
+
+
+def _route_template(scope: Scope) -> str:
+    """Matched route template (never the raw, client-controlled path, which may hold PII)."""
+    path = getattr(scope.get("route"), "path", None)
+    return path if isinstance(path, str) else _UNMATCHED_ROUTE
+
+
 def _entry(
     scope: Scope, usage: RequestUsage, status: int, latency_ms: int, request_id: str
 ) -> RequestLogEntry:
     return RequestLogEntry(
         request_id=request_id,
         user_id=usage.user_id,
-        route=scope["path"],
+        route=_route_template(scope),
         method=scope["method"],
         status=status,
         models=tuple(usage.models),
