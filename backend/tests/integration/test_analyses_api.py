@@ -104,7 +104,7 @@ class Env:
         self.client, self.user_id, self.sm, self.holder = client, user_id, sm, holder
 
     async def stream(self, path: str, body: dict[str, Any] | None = None) -> Events:
-        resp = await self.client.post(path, json=body)
+        resp = await self.client.post(path, json={} if body is None else body)
         assert resp.status_code == 200, resp.text
         assert resp.headers["content-type"].startswith("text/event-stream")
         return parse_sse(resp.text)

@@ -4,10 +4,9 @@ About a 20-minute read. Part 1 is the high-level design, Part 2 the low-level de
 Part 3 the decisions we weighed and why we picked what we did. Things that are designed
 but **not built yet** are marked *(planned)*.
 
-Status at the time of writing: Phases 1 to 6 are built and tested locally (backend,
+Status at the time of writing: Phases 1 to 7 are built (backend,
 ingestion, RAG chat, match analysis, suggestions, guardrails, observability, cost
-controls, evals). Phase 7 (AWS deploy with Terraform), sign-in, and Phase 8 (Next.js
-frontend) are planned.
+controls, evals, email sign-in, AWS CLI deploy). Phase 8 (Next.js frontend) is planned.
 
 ---
 
@@ -42,7 +41,7 @@ requirements, not extras.
 ```mermaid
 flowchart LR
   U[Candidate in browser] -->|HTTPS| FE[Next.js static site<br/>S3 + CloudFront <i>(planned)</i>]
-  FE -->|REST + SSE| API[FastAPI on Lambda<br/>Function URL / API GW <i>(planned)</i>]
+  FE -->|REST + SSE| API[FastAPI on Lambda<br/>Function URL]
   API --> PG[(Postgres + pgvector)]
   API --> ANT[Anthropic API<br/>Haiku 5.5 / Sonnet 5.5]
   API --> BR[Amazon Bedrock<br/>Titan embed, Rerank, Guardrails]
@@ -99,19 +98,22 @@ flowchart TB
   per route; optional Langfuse traces with PII masking.
 - **Quality:** a 33-case golden dataset with adversarial cases and a threshold gate in CI.
 
-### 1.7 Deployment view *(planned, Phase 7)*
+### 1.7 Deployment view *(built, Phase 7)*
 
 - **Compute:** one container image on Lambda (Lambda Web Adapter keeps FastAPI unchanged),
-  behind a Function URL / API Gateway HTTP API. SSE needs response streaming.
-- **Data:** Postgres with pgvector. The spec's choice is Neon's free tier; any serverless
-  Postgres with pgvector works.
-- **Edge:** S3 + CloudFront for the static frontend.
-- **Secrets:** Terraform creates `jobmatch/prod` as an empty container; the value is set
-  by hand with `aws secretsmanager put-secret-value`, so it never lands in Terraform state.
-- **Ops:** AWS Budgets alerts at $10 and $25; an hourly cleanup job deletes data older than
-  72 hours; CloudWatch log retention 14 days.
-- **CI:** GitHub OIDC role `jobmatch-ci`, trusted only for this repo, allowed only to read
-  `jobmatch/ci` and invoke Titan/Rerank.
+  behind a single public Function URL with response streaming for SSE. There is no API
+  Gateway or CloudFront because there is no frontend yet. Readiness uses `/livez`, which
+  never touches the database, so a cold start does not fail on a sleeping Neon instance.
+- **Data:** Neon Postgres with pgvector (free tier); uploads go to a private S3 bucket
+  (objects expire after 3 days).
+- **Secrets:** `make secrets-set` writes `jobmatch/prod` by prompt, so values never reach
+  scripts, state or the Lambda environment (which holds settings only).
+- **Ops:** AWS Budgets email alerts at $10 and $25; reserved concurrency 5 (may be refused
+  on new accounts); a second Lambda (same image, `CLEANUP_MODE`) run hourly by EventBridge
+  Scheduler deletes documents, cache rows, login codes and usage counters older than 72
+  hours; CloudWatch log retention 14 days.
+- **Provisioning:** AWS CLI scripts in `infra/aws/` (see 3.11), not Terraform.
+- **CI:** the GitHub OIDC role for evals is still not created.
 
 ---
 
@@ -121,7 +123,7 @@ flowchart TB
 
 | Table | Key columns | Notes |
 |---|---|---|
-| `users` | `id`, `email`, `created_at`, `last_seen_at` | Email only after sign-in *(planned)* |
+| `users` | `id`, `email`, `created_at`, `last_seen_at` | Set at sign-in |
 | `documents` | `user_id`, `doc_type` (resume/jd), `source`, `status` (processing/ready/failed), `content_sha256`, `embed_model` | Unique index: one `ready` document per user per type |
 | `chunks` | `user_id`, `doc_id`, `doc_type`, `section`, `ordinal`, `text`, `embedding vector(1024)`, `tsv` (generated), `quarantined` | HNSW index (cosine) on embedding, GIN on `tsv` |
 | `analyses` | `user_id`, `resume_doc_id`, `jd_doc_id`, `analyst`, `result` (JSONB) | Unique per document pair and analyst, so it doubles as the analysis cache |
@@ -259,12 +261,16 @@ and logged as hallucination blocks.
 - **Semantic cache:** grounded chat answers reused per user and document set at cosine
   ≥ 0.95, 72-hour TTL; cleared when the user uploads a new document.
 
-### 2.10 Identity seam
+### 2.10 Sign-in *(built, Phase 7)*
 
-`get_current_user_id` currently returns a fixed dev user and **refuses with 401 in any
-environment other than `local` or `ci`**. Routes depend only on its signature, so the
-planned email one-time-code sign-in replaces one function without touching routes.
-This is why the API is not yet safe to expose publicly.
+Email one-time-code sign-in. `POST /api/auth/request-code` always answers 202; `verify`
+checks the code and sets an httponly session cookie (HMAC-signed, stateless, 7 days);
+`me` and `logout` complete the set. Codes are 10-minute, single-use, with 5 attempts each; limits are 3 per email and 10 per IP per hour, and disposable
+domains are refused. Login codes store only HMAC digests of the email and code, and emails are never logged. The client IP
+comes from `X-Forwarded-For` using `trusted_proxy_hops` (1: the Function URL is the only
+hop). Email goes through Resend when deployed and through a console sender locally (the
+code lands in the API log; refused when `ENV=prod`). `get_current_user_id` reads the
+cookie in deployed environments and keeps the fixed dev user only in `local`/`ci`.
 
 ### 2.11 Evaluation harness (Phase 6)
 
@@ -282,7 +288,7 @@ This is why the API is not yet safe to expose publicly.
 - **Gate:** `evals/thresholds.yaml` with an `offline` and a `live` profile. A missing or
   non-finite metric fails the gate.
 - **CI:** the offline gate runs on every PR including forks; the live job runs only for
-  this repo's own PRs and `main`, through OIDC, once the Phase 7 role exists.
+  this repo's own PRs and `main`, through OIDC, once the OIDC role is created (not yet).
 
 ---
 
@@ -374,20 +380,27 @@ change our mind later.
 
 ### 3.10 Secrets only in Secrets Manager, OIDC in CI
 
-- **Chosen:** one JSON secret per environment; Terraform creates only the empty container;
+- **Chosen:** one JSON secret per environment; `make secrets-set` creates and fills it by prompt;
   locally `make env` generates a git-ignored `.env`; CI assumes an AWS role via GitHub OIDC.
 - **Why:** the repository is public. Nothing that grants access should exist in the repo,
-  in GitHub settings, in Terraform state, or in a container image layer.
+  in GitHub settings, in deploy state files, or in a container image layer.
 
-### 3.11 Serverless deploy *(planned)*
+### 3.11 Serverless deploy *(built)*
 
 - **Options:** ECS/Fargate, EC2, App Runner, Lambda.
-- **Chosen:** Lambda (container image + Lambda Web Adapter), S3 + CloudFront, serverless Postgres.
+- **Chosen:** Lambda (container image + Lambda Web Adapter), one public Function URL,
+  serverless Postgres.
 - **Why:** the demo is idle most of the time. Anything that bills per hour (Fargate tasks,
   EC2, RDS, NAT gateways, ALBs) would cost more per month than the whole budget while doing
-  nothing. Lambda and API Gateway sit inside the free tier at demo traffic.
-- **Trade-offs:** cold starts (Presidio and spaCy loading) and Lambda's request limits;
-  SSE needs Lambda response streaming.
+  nothing. Lambda sits inside the free tier at demo traffic.
+- **CLI scripts, not Terraform (author's choice):** simpler, and no state backend to host
+  or secure. `deploy.sh` is idempotent and records every resource in a local state file as
+  it creates it. `teardown.sh` deletes from the state file, sweeps the names in `config.sh`,
+  then checks by name and by `Project` tag, and exits 1 if anything remains. The cost is no
+  drift detection or plan step.
+- **Function URL, not CloudFront + API Gateway:** with no frontend there is nothing to
+  put at the edge. Revisit in Phase 8.
+- **Trade-offs:** cold starts (Presidio and spaCy loading) and Lambda's request limits.
 
 ### 3.12 Evals: own dataset and gate, DeepEval for judge metrics
 
@@ -402,14 +415,16 @@ change our mind later.
 
 ## Part 4: Known limits and what's next
 
-- **Sign-in is not built.** Outside `local`/`ci`, every user route returns 401, so a cloud
-  deploy today serves only `/health`. Email one-time-code sign-in is planned before a
-  public deploy.
+- **Sessions are stateless:** logout clears the cookie but cannot revoke a stolen one
+  before its 7 days end.
+- **Public Function URL, no edge:** no CloudFront, WAF or custom domain. Reserved
+  concurrency may be refused on new accounts, leaving Budgets alerts as the only AWS cost
+  backstop. `trusted_proxy_hops=1` must be raised if another proxy is added.
+- **Bedrock guardrail not created**, so its eval rows stay empty; the spec's events/analytics
+  table is deferred.
 - **No live eval numbers yet:** they need an Anthropic key in the secret and a paid run
-  (estimated $0.10 to $0.50 per full run, to be measured).
-- **Phase 7:** Terraform for Lambda, API Gateway, S3, CloudFront, secrets, Budgets, the
-  cleanup job and the CI OIDC role. Re-check Bedrock prices; purge expired cache rows;
-  flush Langfuse per request on Lambda.
+  (estimated $0.10 to $0.50 per full run, to be measured). The CI OIDC role is not created.
+- **Still open:** re-check Bedrock prices; flush Langfuse per request on Lambda.
 - **Phase 8:** Next.js frontend with the "Show guardrails" panel, README diagrams, demo GIF.
 
 ## Glossary

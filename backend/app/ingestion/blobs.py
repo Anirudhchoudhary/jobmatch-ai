@@ -4,6 +4,7 @@ import asyncio
 import os
 import re
 import tempfile
+from functools import lru_cache
 from pathlib import Path
 from typing import Protocol
 from uuid import UUID, uuid4
@@ -74,6 +75,26 @@ class LocalBlobStore:
         await asyncio.to_thread(path.unlink, True)
 
 
+@lru_cache
+def _s3_store(bucket: str, region: str) -> BlobStore:
+    import boto3
+    from botocore.config import Config
+
+    from app.ingestion.s3_blobs import S3BlobStore
+
+    # The regional endpoint: a new bucket 307-redirects the global name for up to a day, and a
+    # presigned URL's signature covers the host, so the browser could not follow the redirect.
+    client = boto3.client(
+        "s3",
+        region_name=region,
+        endpoint_url=f"https://s3.{region}.amazonaws.com",
+        config=Config(signature_version="s3v4", s3={"addressing_style": "virtual"}),
+    )
+    return S3BlobStore(client, bucket)
+
+
 def get_blob_store() -> BlobStore:
-    """Local in Phase 2; Phase 7 swaps in S3 behind the same protocol."""
-    return LocalBlobStore(get_settings().upload_dir)
+    settings = get_settings()
+    if settings.blob_backend == "s3" and settings.uploads_bucket:  # bucket enforced by settings
+        return _s3_store(settings.uploads_bucket, settings.aws_region)
+    return LocalBlobStore(settings.upload_dir)

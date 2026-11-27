@@ -74,3 +74,67 @@ def test_bedrock_guard_requires_numbered_version(monkeypatch: pytest.MonkeyPatch
     monkeypatch.delenv("BEDROCK_GUARDRAIL_VERSION")
     get_settings.cache_clear()
     assert get_settings().guard_bedrock == "off"
+
+
+def _prod_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://u:p@h/db")
+    monkeypatch.setenv("ENV", "prod")
+
+
+def test_prod_requires_auth_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    _prod_env(monkeypatch)
+    monkeypatch.setenv("EMAIL_SENDER", "resend")
+    monkeypatch.setenv("RESEND_API_KEY", "fake-resend")
+    monkeypatch.setenv("EMAIL_FROM", "noreply@example.com")
+    with pytest.raises(ValidationError, match="SESSION_SIGNING_KEY"):
+        get_settings()
+    monkeypatch.setenv("SESSION_SIGNING_KEY", "fake-signing-key-0123456789-abcdefghij")
+    get_settings.cache_clear()
+    with pytest.raises(ValidationError, match="OTP_HMAC_KEY"):
+        get_settings()
+    monkeypatch.setenv("OTP_HMAC_KEY", "fake-otp-hmac-key-0123456789-abcdefghij")
+    get_settings.cache_clear()
+    assert get_settings().env == "prod"
+
+
+def test_prod_rejects_console_sender(monkeypatch: pytest.MonkeyPatch) -> None:
+    _prod_env(monkeypatch)
+    monkeypatch.setenv("SESSION_SIGNING_KEY", "fake-signing-key-0123456789-abcdefghij")
+    monkeypatch.setenv("OTP_HMAC_KEY", "fake-otp-hmac-key-0123456789-abcdefghij")
+    with pytest.raises(ValidationError, match="console"):
+        get_settings()
+
+
+def test_resend_sender_requires_key_and_from(monkeypatch: pytest.MonkeyPatch) -> None:
+    _prod_env(monkeypatch)
+    monkeypatch.setenv("SESSION_SIGNING_KEY", "fake-signing-key-0123456789-abcdefghij")
+    monkeypatch.setenv("OTP_HMAC_KEY", "fake-otp-hmac-key-0123456789-abcdefghij")
+    monkeypatch.setenv("EMAIL_SENDER", "resend")
+    with pytest.raises(ValidationError, match="RESEND_API_KEY"):
+        get_settings()
+
+
+def test_s3_backend_requires_bucket(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://u:p@h/db")
+    monkeypatch.setenv("BLOB_BACKEND", "s3")
+    with pytest.raises(ValidationError, match="UPLOADS_BUCKET"):
+        get_settings()
+    monkeypatch.setenv("UPLOADS_BUCKET", "fake-bucket")
+    get_settings.cache_clear()
+    assert get_settings().blob_backend == "s3"
+
+
+@pytest.mark.parametrize("name", ["SESSION_SIGNING_KEY", "OTP_HMAC_KEY"])
+@pytest.mark.parametrize("value", ["", "short-key"])
+def test_prod_rejects_empty_or_short_keys(
+    monkeypatch: pytest.MonkeyPatch, name: str, value: str
+) -> None:
+    _prod_env(monkeypatch)
+    monkeypatch.setenv("EMAIL_SENDER", "resend")
+    monkeypatch.setenv("RESEND_API_KEY", "fake-resend")
+    monkeypatch.setenv("EMAIL_FROM", "noreply@example.com")
+    monkeypatch.setenv("SESSION_SIGNING_KEY", "fake-signing-key-0123456789-abcdefghij")
+    monkeypatch.setenv("OTP_HMAC_KEY", "fake-otp-hmac-key-0123456789-abcdefghij")
+    monkeypatch.setenv(name, value)
+    with pytest.raises(ValidationError, match=f"{name} must be at least 32"):
+        get_settings()

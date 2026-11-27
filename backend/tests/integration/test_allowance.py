@@ -184,9 +184,9 @@ async def test_cached_analysis_is_free(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _settings(monkeypatch, allowance_analyses=1)
-    assert (await client.post("/api/samples")).status_code == 200
-    first = await client.post("/api/stream/analyses")
-    second = await client.post("/api/stream/analyses")
+    assert (await client.post("/api/samples", json={})).status_code == 200
+    first = await client.post("/api/stream/analyses", json={})
+    second = await client.post("/api/stream/analyses", json={})
     assert first.status_code == second.status_code == 200
     assert parse_sse(first.text)[-1][1]["cached"] is False
     events = parse_sse(second.text)
@@ -212,14 +212,14 @@ async def test_fresh_analysis_over_limit_is_an_sse_error(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _settings(monkeypatch, allowance_analyses=1)
-    assert (await client.post("/api/samples")).status_code == 200
-    first = await client.post("/api/stream/analyses")
+    assert (await client.post("/api/samples", json={})).status_code == 200
+    first = await client.post("/api/stream/analyses", json={})
     assert parse_sse(first.text)[-1][0] == "done"
     changed = await client.post(
         "/api/stream/documents", json={"doc_type": "jd", "text": JD + "\n- Experience with Rust."}
     )
     assert changed.status_code == 200
-    second = await client.post("/api/stream/analyses")
+    second = await client.post("/api/stream/analyses", json={})
     name, data = parse_sse(second.text)[-1]
     assert name == "error"
     assert data["code"] == "quota_exceeded"

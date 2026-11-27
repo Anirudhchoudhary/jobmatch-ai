@@ -133,3 +133,10 @@ async def test_guardrail_schema_objects_exist(session: AsyncSession) -> None:
     assert {r[0] for r in cols} == {"quarantined", "quarantine_reason"}
     idx = {r[0] for r in await session.execute(text("SELECT indexname FROM pg_indexes"))}
     assert "ix_guardrail_events_created" in idx
+
+
+async def test_login_codes_table_exists(session: AsyncSession) -> None:
+    tables = {r[0] for r in await session.execute(text("SELECT tablename FROM pg_tables"))}
+    assert "login_codes" in tables
+    idx = {r[0] for r in await session.execute(text("SELECT indexname FROM pg_indexes"))}
+    assert {"ix_login_codes_email_created", "ix_login_codes_ip_created"} <= idx

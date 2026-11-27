@@ -84,3 +84,11 @@ async def test_health_production_path_unreachable_db_within_bound(
     assert r.status_code == 503
     assert elapsed < 3.5
     assert "secretpw" not in r.text
+
+
+async def test_livez_needs_no_database(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://u:p@127.0.0.1:1/none")
+    async with _client() as c:
+        r = await c.get("/livez")
+    assert r.status_code == 200
+    assert r.json() == {"status": "ok"}

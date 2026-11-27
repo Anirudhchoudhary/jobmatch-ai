@@ -11,14 +11,17 @@ from pydantic import ValidationError
 
 from app import __version__
 from app.api.analyses import router as analyses_router
+from app.api.auth import router as auth_router
 from app.api.chat import router as chat_router
 from app.api.documents import router as documents_router
+from app.api.events import router as events_router
 from app.api.health import router as health_router
 from app.api.samples import router as samples_router
 from app.api.suggestions import router as suggestions_router
 from app.api.uploads import local_put_router
 from app.api.uploads import router as uploads_router
 from app.core.errors import install_error_handlers
+from app.core.json_only import JsonOnlyMiddleware
 from app.core.logging import configure_logging
 from app.core.pii import warm_up
 from app.core.request_id import RequestIdMiddleware
@@ -63,23 +66,49 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         await get_engine().dispose()
 
 
+def _blob_backend() -> str:
+    try:
+        return get_settings().blob_backend
+    except ValidationError:
+        return os.environ.get("BLOB_BACKEND", "local")
+
+
+def _cleanup_mode() -> bool:
+    try:
+        return get_settings().cleanup_mode
+    except ValidationError:
+        return False
+
+
 def create_app() -> FastAPI:
     # Runs at import time under uvicorn, after its dictConfig, so this override is intentional.
     configure_logging(_log_level(), pii_engine=_pii_engine())
-    app = FastAPI(title="JobMatch AI", version=__version__, lifespan=lifespan)
+    docs = _env() != "prod"  # no public schema or docs UI on the deployed API
+    app = FastAPI(
+        title="JobMatch AI",
+        version=__version__,
+        lifespan=lifespan,
+        docs_url="/docs" if docs else None,
+        redoc_url="/redoc" if docs else None,
+        openapi_url="/openapi.json" if docs else None,
+    )
     # add_middleware stacks last-added outermost: the request id must be bound first.
+    app.add_middleware(JsonOnlyMiddleware)
     app.add_middleware(RequestLogMiddleware, writer=DbRequestLogWriter())
     app.add_middleware(RequestIdMiddleware)
     install_error_handlers(app)
     app.include_router(health_router)
+    app.include_router(auth_router)
     app.include_router(uploads_router)
     app.include_router(documents_router)
     app.include_router(chat_router)
     app.include_router(samples_router)
     app.include_router(analyses_router)
     app.include_router(suggestions_router)
-    if _env() in ("local", "ci"):
+    if _env() in ("local", "ci") and _blob_backend() == "local":
         app.include_router(local_put_router)
+    if _cleanup_mode():  # private cleanup function only; never on the public one
+        app.include_router(events_router)
     return app
 
 

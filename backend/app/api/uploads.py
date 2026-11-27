@@ -1,4 +1,4 @@
-"""Upload tickets and the local-only PUT target (S3 presigned URL in Phase 7)."""
+"""Upload tickets and the local-only PUT target (S3 presigned URL otherwise)."""
 
 from typing import Annotated
 from uuid import UUID
@@ -9,6 +9,7 @@ from app.api.deps import get_current_user_id
 from app.core.errors import AppError
 from app.core.settings import get_settings
 from app.ingestion.blobs import BlobStore, assert_owned_key, get_blob_store, new_upload_key
+from app.ingestion.s3_blobs import S3BlobStore
 from app.schemas.documents import UploadRequest, UploadTicket
 
 router = APIRouter(prefix="/api/uploads", tags=["uploads"])
@@ -23,11 +24,26 @@ def _too_large(max_bytes: int) -> AppError:
 
 
 @router.post("")
-async def create_upload(body: UploadRequest, user_id: UserId) -> UploadTicket:
+async def create_upload(
+    body: UploadRequest,
+    user_id: UserId,
+    store: Annotated[BlobStore, Depends(get_blob_store)],
+) -> UploadTicket:
     max_bytes = get_settings().max_upload_bytes
     if body.size_bytes > max_bytes:
         raise _too_large(max_bytes)
     key = new_upload_key(user_id)
+    if isinstance(store, S3BlobStore):
+        return UploadTicket(
+            key=key,
+            url=store.presign_put(key, body.size_bytes),
+            method="PUT",
+            headers={
+                "Content-Type": "application/pdf",
+                "x-amz-server-side-encryption": "AES256",
+            },
+            max_bytes=max_bytes,
+        )
     return UploadTicket(
         key=key,
         url=f"/api/uploads/{key}",

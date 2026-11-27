@@ -4,7 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import SecretStr, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.secrets import load_secret
@@ -15,6 +15,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 ENV_FILE = _REPO_ROOT / ".env"
 
 
+_MIN_PROD_KEY_LEN = 32
 GuardMode = Literal["off", "monitor", "enforce"]
 
 
@@ -118,6 +119,30 @@ class Settings(_Bootstrap):
     # (None = off)
     daily_spend_cap_usd: float | None = 1.0
 
+    # Sign-in (email OTP) and session cookie
+    session_signing_key: SecretStr | None = None
+    otp_hmac_key: SecretStr | None = None
+    resend_api_key: SecretStr | None = None
+    email_from: str | None = None
+    email_sender: Literal["console", "resend"] = "console"
+    session_cookie_name: str = "jm_session"
+    session_ttl_days: int = 7
+    otp_ttl_minutes: int = 10
+    otp_max_attempts: int = 5
+    otp_per_email_per_hour: int = 3
+    otp_per_ip_per_hour: int = 10
+    # All sign-in emails in a rolling 24 hours, kept under Resend's free-tier daily quota
+    otp_global_per_day: int = 90
+    # Proxies in front of the app that append to X-Forwarded-For (Lambda Function URL = 1);
+    # only used when the Lambda request context carries no source IP
+    trusted_proxy_hops: int = Field(default=1, ge=1)
+
+    # Deployment: blob storage and the retention cleanup job
+    blob_backend: Literal["local", "s3"] = "local"
+    uploads_bucket: str | None = None
+    cleanup_mode: bool = False
+    retention_hours: int = 72
+
     @model_validator(mode="after")
     def _bedrock_guard_needs_numbered_version(self) -> "Settings":
         if self.guard_bedrock != "off" and (
@@ -149,6 +174,31 @@ class Settings(_Bootstrap):
             raise ValueError(
                 f"EMBED_DIMENSIONS must be {EMBEDDING_DIM} to match the chunks.embedding column"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _prod_requires_auth_config(self) -> "Settings":
+        if self.env == "prod":
+            for name, key in (
+                ("SESSION_SIGNING_KEY", self.session_signing_key),
+                ("OTP_HMAC_KEY", self.otp_hmac_key),
+            ):
+                if key is None:
+                    raise ValueError(f"{name} is required when ENV=prod")
+                if len(key.get_secret_value()) < _MIN_PROD_KEY_LEN:
+                    raise ValueError(
+                        f"{name} must be at least {_MIN_PROD_KEY_LEN} characters when ENV=prod"
+                    )
+            if self.email_sender == "console":
+                raise ValueError("EMAIL_SENDER=console is not allowed when ENV=prod")
+        if self.email_sender == "resend" and (self.resend_api_key is None or not self.email_from):
+            raise ValueError("RESEND_API_KEY and EMAIL_FROM are required when EMAIL_SENDER=resend")
+        return self
+
+    @model_validator(mode="after")
+    def _s3_backend_needs_bucket(self) -> "Settings":
+        if self.blob_backend == "s3" and not self.uploads_bucket:
+            raise ValueError("UPLOADS_BUCKET is required when BLOB_BACKEND=s3")
         return self
 
     @property
