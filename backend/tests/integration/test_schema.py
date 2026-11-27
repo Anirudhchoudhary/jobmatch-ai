@@ -140,3 +140,8 @@ async def test_login_codes_table_exists(session: AsyncSession) -> None:
     assert "login_codes" in tables
     idx = {r[0] for r in await session.execute(text("SELECT indexname FROM pg_indexes"))}
     assert {"ix_login_codes_email_created", "ix_login_codes_ip_created"} <= idx
+
+
+async def test_suggestion_sets_table_exists(session: AsyncSession) -> None:
+    tables = {r[0] for r in await session.execute(text("SELECT tablename FROM pg_tables"))}
+    assert "suggestion_sets" in tables

@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.analysis.analyst import Analyst
 from app.analysis.grounding import validate_suggestions
 from app.analysis.heuristic import _WORD, _tokens
-from app.analysis.repo import get_analysis, latest_analysis, load_documents
+from app.analysis.repo import get_analysis, latest_analysis, load_documents, save_suggestions
 from app.core.errors import AppError
 from app.core.request_id import request_id_var
 from app.graphs.citations import label_context
@@ -183,10 +183,18 @@ async def suggest(
             recorder, user_id, f"suggestions_rejected:{final['rejected']}"
         )
     log.info("suggest_completed", ms=_ms(start))
-    return BulletSuggestions(
+    result = BulletSuggestions(
         analysis_id=analysis_id,
         suggestions=final["suggestions"],
         rejected_count=final["rejected"],
         analyst=analyst.name,
         request_id=request_id_var.get(),
     )
+    async with sessionmaker() as session:
+        await save_suggestions(
+            session,
+            user_id=user_id,
+            analysis_id=analysis_id,
+            result=result.model_dump(mode="json", exclude={"request_id"}),
+        )
+    return result

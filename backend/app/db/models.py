@@ -118,6 +118,19 @@ class Analysis(Base):
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
+class SuggestionSet(Base):
+    """The last bullet suggestions for an analysis; cascades away with it."""
+
+    __tablename__ = "suggestion_sets"
+
+    analysis_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("analyses.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    result: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class GuardrailEvent(Base):
     """One guard's verdict at one stage; PII-free (reason is a fixed code)."""
 

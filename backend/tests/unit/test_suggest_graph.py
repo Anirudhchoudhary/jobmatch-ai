@@ -149,7 +149,11 @@ async def _run_suggest(
     async def latest_analysis(session: object, *args: object) -> tuple[UUID, dict[str, Any]]:
         return analysis_id, stored
 
+    async def save_suggestions(session: object, **kwargs: object) -> None:
+        return None
+
     monkeypatch.setattr(suggest_module, "load_documents", load_documents)
+    monkeypatch.setattr(suggest_module, "save_suggestions", save_suggestions)
     monkeypatch.setattr(suggest_module, "latest_analysis", latest_analysis)
     user_id = uuid4()
     await suggest(

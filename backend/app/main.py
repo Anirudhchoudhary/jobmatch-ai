@@ -17,6 +17,7 @@ from app.api.documents import router as documents_router
 from app.api.events import router as events_router
 from app.api.health import router as health_router
 from app.api.samples import router as samples_router
+from app.api.session_state import router as session_state_router
 from app.api.suggestions import router as suggestions_router
 from app.api.uploads import local_put_router
 from app.api.uploads import router as uploads_router
@@ -105,6 +106,7 @@ def create_app() -> FastAPI:
     app.include_router(samples_router)
     app.include_router(analyses_router)
     app.include_router(suggestions_router)
+    app.include_router(session_state_router)
     if _env() in ("local", "ci") and _blob_backend() == "local":
         app.include_router(local_put_router)
     if _cleanup_mode():  # private cleanup function only; never on the public one
