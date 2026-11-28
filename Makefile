@@ -6,7 +6,7 @@ RUN2 = && $(UV) run
 DATABASE_URL ?= postgresql+psycopg://jobmatch:jobmatch@localhost:5432/jobmatch
 export DATABASE_URL
 
-.PHONY: install lint fmt typecheck test test-integration test-evals env up down migrate db-shell setup run logs samples retrieval-eval retrieval-eval-live report eval eval-baseline eval-live eval-live-baseline secrets-set migrate-prod deploy deploy-frontend teardown smoke-prod fe-install fe-dev fe-test fe-build fe-e2e
+.PHONY: install lint fmt typecheck test test-integration test-evals env up down migrate db-shell setup run logs samples retrieval-eval retrieval-eval-live record-demo report eval eval-baseline eval-live eval-live-baseline secrets-set migrate-prod deploy deploy-frontend teardown smoke-prod fe-install fe-dev fe-test fe-build fe-e2e
 
 install:
 	cd backend && $(UV) sync --locked
@@ -59,6 +59,11 @@ samples:
 # Offline providers (hash embedder, no reranker); prints the table, writes an ignored file.
 retrieval-eval:
 	$(RUN) python -m scripts.retrieval_eval --out ../var/retrieval_baseline.offline.json
+
+# Re-records the no-sign-in demo (frontend/src/demo/recording.json) from the LOCAL database with
+# real Claude + Bedrock; reads only ANTHROPIC_API_KEY from the prod secret. Costs cents; ask first.
+record-demo:
+	cd backend && $(UV) run python -m scripts.record_demo
 
 # Latency, cost and guardrail report from the local DB (DAYS=30 for a longer window).
 report:

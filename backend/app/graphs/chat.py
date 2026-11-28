@@ -26,6 +26,7 @@ from app.cache.semantic import CachedAnswer, ChatCache, doc_set_key
 from app.core.errors import ProviderError
 from app.core.request_id import request_id_var
 from app.graphs.citations import (
+    EMPTY_ANSWER_TEXT,
     INJECTION_TEXT,
     OFF_TOPIC_TEXT,
     REFUSAL_TEXT,
@@ -229,7 +230,13 @@ def build_chat_graph(
             log_provider_failure("anthropic", exc)
             raise ProviderError("anthropic") from exc
         log.info("chat_generated", ms=_ms(start))
-        return {"answer": "".join(answer), "refused": False}
+        text = "".join(answer)
+        if not text.strip():
+            # Adaptive thinking can spend the whole token budget without writing any text.
+            log.warning("chat_empty_answer")
+            writer({"type": "token", "text": EMPTY_ANSWER_TEXT})
+            return {"answer": EMPTY_ANSWER_TEXT, "refused": True}
+        return {"answer": text, "refused": False}
 
     async def output_guards(state: ChatState) -> dict[str, Any]:
         get_stream_writer()({"type": "progress", "step": "checking_answer"})

@@ -21,7 +21,7 @@ from app.cache.semantic import CachedAnswer
 from app.core.errors import ProviderError
 from app.core.settings import GuardMode, Settings
 from app.graphs.chat import ChatState, build_chat_graph, chat_events
-from app.graphs.citations import INJECTION_TEXT, OFF_TOPIC_TEXT, REFUSAL_TEXT
+from app.graphs.citations import EMPTY_ANSWER_TEXT, INJECTION_TEXT, OFF_TOPIC_TEXT, REFUSAL_TEXT
 from app.guardrails.base import GuardrailResult
 from app.guardrails.factory import Guardrails, build_guardrails
 from app.guardrails.pipeline import GuardrailPipeline, GuardStep, NullRecorder
@@ -194,6 +194,19 @@ async def test_refuses_below_min_relevance() -> None:
     assert done.refused is True
     assert done.answer == REFUSAL_TEXT
     assert "generating" not in steps(events)
+
+
+async def test_empty_answer_becomes_a_retry_message() -> None:
+    # Adaptive thinking can use the whole max_tokens budget and leave no visible text; the user
+    # must get a clear "try again" instead of a blank answer marked as verified.
+    thinking_only = ScriptedModel(contents=[[{"type": "thinking", "thinking": "Let me see..."}]])
+    events = await run(FakeRetriever([CHUNK]), thinking_only)
+    done = events[-1][1]
+    assert isinstance(done, ChatDone)
+    assert done.answer == EMPTY_ANSWER_TEXT
+    assert "".join(tokens(events)) == EMPTY_ANSWER_TEXT
+    assert done.refused is True
+    assert done.citations == []
 
 
 async def test_one_relevant_chunk_is_enough() -> None:

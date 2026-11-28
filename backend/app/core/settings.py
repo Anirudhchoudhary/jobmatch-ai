@@ -45,7 +45,8 @@ class Settings(_Bootstrap):
     # Anthropic
     anthropic_api_key: SecretStr | None = None
     chat_model: str = "claude-haiku-5-5"
-    chat_max_tokens: int = 1024
+    # Adaptive thinking counts against max_tokens: 1024 left some answers with no text at all.
+    chat_max_tokens: int = 4096
     strong_chat_model: str = "claude-sonnet-5-5"
     # Adaptive thinking counts against max_tokens, so structured calls need headroom.
     structured_max_tokens: int = 12_000
