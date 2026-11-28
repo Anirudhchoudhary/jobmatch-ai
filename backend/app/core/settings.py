@@ -4,7 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import AliasChoices, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.secrets import load_secret
@@ -116,7 +116,11 @@ class Settings(_Bootstrap):
     # Langfuse tracing (off unless both keys are set)
     langfuse_public_key: SecretStr | None = None
     langfuse_secret_key: SecretStr | None = None
-    langfuse_host: str = "https://cloud.langfuse.com"
+    # Langfuse's current docs call this LANGFUSE_BASE_URL; LANGFUSE_HOST still works.
+    langfuse_host: str = Field(
+        default="https://cloud.langfuse.com",
+        validation_alias=AliasChoices("langfuse_host", "langfuse_base_url"),
+    )
 
     # Global backstop: refuse requests once today's logged model + Bedrock cost reaches this
     # (None = off)

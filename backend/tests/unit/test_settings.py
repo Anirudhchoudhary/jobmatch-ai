@@ -138,3 +138,29 @@ def test_prod_rejects_empty_or_short_keys(
     monkeypatch.setenv(name, value)
     with pytest.raises(ValidationError, match=f"{name} must be at least 32"):
         get_settings()
+
+
+def test_langfuse_base_url_from_secret_sets_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Langfuse's docs now name the setting LANGFUSE_BASE_URL; both spellings must work.
+    monkeypatch.setenv("SECRETS_SOURCE", "aws")
+
+    def fake_load(secret_id: str, *, region: str) -> dict[str, str]:
+        return {
+            "DATABASE_URL": "postgresql+psycopg://x:y@z/db",
+            "LANGFUSE_BASE_URL": "https://us.cloud.langfuse.com",
+        }
+
+    monkeypatch.setattr(settings_module, "load_secret", fake_load)
+    assert get_settings().langfuse_host == "https://us.cloud.langfuse.com"
+
+
+@pytest.mark.parametrize("name", ["LANGFUSE_HOST", "LANGFUSE_BASE_URL"])
+def test_langfuse_host_from_env_either_name(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://x:y@z/db")
+    monkeypatch.setenv(name, "https://lf.example")
+    assert get_settings().langfuse_host == "https://lf.example"
+
+
+def test_langfuse_host_default_is_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://x:y@z/db")
+    assert get_settings().langfuse_host == "https://cloud.langfuse.com"
