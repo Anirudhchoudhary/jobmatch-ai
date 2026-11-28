@@ -5,7 +5,6 @@ import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ChunkViewer } from "@/components/ChunkViewer";
-import { Suggestions } from "@/components/Suggestions";
 import { apiGet, ApiError, GENERIC_ERROR_MESSAGE } from "@/lib/api";
 import { streamSse } from "@/lib/sse";
 import type { MatchAnalysis, MatchStatus, SkillMatch } from "@/lib/types";
@@ -89,10 +88,19 @@ function SkillRow({ match }: { match: SkillMatch }) {
 
 /**
  * Restores the stored analysis on mount; otherwise offers to run one. `docsVersion` changing after
- * mount means the documents were replaced: the old result is hidden and a re-run is offered
- * (never run automatically, it spends a daily analysis).
+ * mount means the documents were replaced: the old result is hidden and a re-run is offered.
+ * `autoRun` (the user's own action opened this step) starts one run when no current result exists,
+ * at most once per `docsVersion`. `onResult` reports the shown analysis id, or null when none.
  */
-export function Analysis({ docsVersion }: { docsVersion: number }) {
+export function Analysis({
+  docsVersion,
+  autoRun = false,
+  onResult,
+}: {
+  docsVersion: number;
+  autoRun?: boolean;
+  onResult?: (analysisId: string | null) => void;
+}) {
   const [result, setResult] = useState<MatchAnalysis | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [stale, setStale] = useState(false);
@@ -100,6 +108,11 @@ export function Analysis({ docsVersion }: { docsVersion: number }) {
   const [step, setStep] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const seenVersion = useRef(docsVersion);
+  const autoRanFor = useRef<number | null>(null);
+  const onResultRef = useRef(onResult);
+  useEffect(() => {
+    onResultRef.current = onResult;
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -121,6 +134,17 @@ export function Analysis({ docsVersion }: { docsVersion: number }) {
       setStale(true);
     }
   }, [docsVersion]);
+
+  const shownId = loaded && result !== null && !stale ? result.analysis_id : null;
+  useEffect(() => {
+    if (loaded) onResultRef.current?.(shownId);
+  }, [loaded, shownId]);
+
+  useEffect(() => {
+    if (!autoRun || !loaded || running || error || shownId !== null || autoRanFor.current === docsVersion) return;
+    autoRanFor.current = docsVersion;
+    void run();
+  });
 
   async function run() {
     setRunning(true);
@@ -223,7 +247,6 @@ export function Analysis({ docsVersion }: { docsVersion: number }) {
               </section>
             );
           })}
-          <Suggestions key={result.analysis_id} />
         </>
       ) : null}
     </div>

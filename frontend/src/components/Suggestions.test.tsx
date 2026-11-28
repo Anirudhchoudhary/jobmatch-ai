@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Suggestions } from "./Suggestions";
@@ -43,6 +43,30 @@ describe("Suggestions", () => {
   afterEach(() => vi.unstubAllGlobals());
 
   const calledPost = () => fetchMock.mock.calls.some((c) => c[0] === "/api/stream/suggestions");
+
+  const posts = () => fetchMock.mock.calls.filter((c) => c[0] === "/api/stream/suggestions").length;
+
+  it("autoRun starts exactly one run when none are stored", async () => {
+    const onResult = vi.fn();
+    const { rerender } = render(<Suggestions autoRun onResult={onResult} />);
+    expect(await screen.findByText("Wrote backend code")).toBeInTheDocument();
+    rerender(<Suggestions autoRun onResult={onResult} />);
+    expect(posts()).toBe(1);
+    await waitFor(() => expect(onResult).toHaveBeenLastCalledWith(true));
+  });
+
+  it("autoRun does not run when rewrites are stored, and without autoRun nothing runs", async () => {
+    latest = () => json(200, stored());
+    const { unmount } = render(<Suggestions autoRun />);
+    await screen.findByText("Wrote backend code");
+    unmount();
+    latest = () => json(404, { error: { code: "suggestions_not_found", message: "x", request_id: "r" } });
+    const onResult = vi.fn();
+    render(<Suggestions onResult={onResult} />);
+    expect(await screen.findByRole("button", { name: /^suggest rewrites$/i })).toBeInTheDocument();
+    expect(onResult).toHaveBeenLastCalledWith(false);
+    expect(posts()).toBe(0);
+  });
 
   it("restores stored suggestions as original and rewritten pairs without posting", async () => {
     latest = () => json(200, stored());

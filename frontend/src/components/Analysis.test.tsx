@@ -60,6 +60,39 @@ describe("Analysis", () => {
 
   const calledPost = () => fetchMock.mock.calls.some((c) => c[0] === "/api/stream/analyses");
 
+  const posts = () => fetchMock.mock.calls.filter((c) => c[0] === "/api/stream/analyses").length;
+
+  it("autoRun starts exactly one run on a 404 and reports the result", async () => {
+    post = () => sse(ev("done", analysis({ cached: false })));
+    const onResult = vi.fn();
+    const { rerender } = render(<Analysis docsVersion={1} autoRun onResult={onResult} />);
+    expect(await screen.findByText("72")).toBeInTheDocument();
+    rerender(<Analysis docsVersion={1} autoRun onResult={onResult} />);
+    expect(posts()).toBe(1);
+    await waitFor(() => expect(onResult).toHaveBeenLastCalledWith("a1"));
+  });
+
+  it("autoRun does not re-run after a failed run, nor with a stored result", async () => {
+    post = () => sse(ev("error", { code: "allowance_exceeded", message: "Daily limit reached." }));
+    const { rerender, unmount } = render(<Analysis docsVersion={1} autoRun />);
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Daily limit reached."));
+    rerender(<Analysis docsVersion={1} autoRun />);
+    expect(posts()).toBe(1);
+    unmount();
+    latest = () => json(200, analysis());
+    render(<Analysis docsVersion={1} autoRun />);
+    await screen.findByText("72");
+    expect(posts()).toBe(1);
+  });
+
+  it("without autoRun a 404 shows the run button and reports no result", async () => {
+    const onResult = vi.fn();
+    render(<Analysis docsVersion={1} onResult={onResult} />);
+    expect(await screen.findByRole("button", { name: /^run analysis$/i })).toBeInTheDocument();
+    expect(onResult).toHaveBeenLastCalledWith(null);
+    expect(posts()).toBe(0);
+  });
+
   it("restores the stored analysis without calling the POST", async () => {
     latest = () => json(200, analysis());
     render(<Analysis docsVersion={1} />);

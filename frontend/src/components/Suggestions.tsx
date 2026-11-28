@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -15,13 +15,28 @@ const STEP_LABELS: Record<string, string> = {
   validating: "Checking rewrites against your resume",
 };
 
-/** Restores stored rewrites on mount; "Suggest rewrites" spends a daily allowance. */
-export function Suggestions() {
+/**
+ * Restores stored rewrites on mount; "Suggest rewrites" spends a daily allowance. `autoRun` (the
+ * user's own action opened this step) starts one run when none are stored. `onResult` reports
+ * whether rewrites are shown.
+ */
+export function Suggestions({
+  autoRun = false,
+  onResult,
+}: {
+  autoRun?: boolean;
+  onResult?: (present: boolean) => void;
+} = {}) {
   const [result, setResult] = useState<BulletSuggestions | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [step, setStep] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const autoRan = useRef(false);
+  const onResultRef = useRef(onResult);
+  useEffect(() => {
+    onResultRef.current = onResult;
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -36,6 +51,17 @@ export function Suggestions() {
       cancelled = true;
     };
   }, []);
+
+  const present = result !== null;
+  useEffect(() => {
+    if (loaded) onResultRef.current?.(present);
+  }, [loaded, present]);
+
+  useEffect(() => {
+    if (!autoRun || !loaded || busy || error || present || autoRan.current) return;
+    autoRan.current = true;
+    void generate();
+  });
 
   async function generate() {
     setBusy(true);

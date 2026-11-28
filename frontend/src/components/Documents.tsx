@@ -15,7 +15,8 @@ const JD_MAX = 20000;
 
 const messageOf = (e: unknown) => (e instanceof Error && e.message ? e.message : GENERIC_ERROR_MESSAGE);
 
-export function Documents({ onReady }: { onReady: () => void }) {
+/** `onReady(changed)`: both documents are present; `changed` is false when reporting the stored pair on mount. */
+export function Documents({ onReady }: { onReady: (changed: boolean) => void }) {
   const [docs, setDocs] = useState<DocumentList["documents"]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -36,7 +37,7 @@ export function Documents({ onReady }: { onReady: () => void }) {
       // Fire once on first load, then again whenever a replacement succeeds.
       if (both && (changed || !notified.current)) {
         notified.current = true;
-        onReadyRef.current();
+        onReadyRef.current(changed);
       }
     } catch (e) {
       setError(messageOf(e));
