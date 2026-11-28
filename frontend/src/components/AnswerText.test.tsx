@@ -62,6 +62,13 @@ describe("AnswerText", () => {
     expect(screen.queryByText("quote body")).not.toBeInTheDocument();
   });
 
+  it("renders markdown bold as bold text, never as asterisks", () => {
+    const { container } = render(<AnswerText text="Your gap is **Kubernetes** today." citations={[]} />);
+    expect(container.querySelector("strong")?.textContent).toBe("Kubernetes");
+    expect(container.querySelector("p")?.textContent).toBe("Your gap is Kubernetes today.");
+    expect(screen.getByTestId("answer-announce").textContent).toBe("Your gap is Kubernetes today.");
+  });
+
   it("drops labels missing from citations", () => {
     const { container } = render(<AnswerText text="Claim [r9] and [j2]." citations={[cite("j2", "Needs Go")]} />);
     expect(container.querySelector("p")!.textContent).not.toMatch(/r9|j2/);

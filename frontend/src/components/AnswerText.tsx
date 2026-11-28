@@ -2,6 +2,7 @@
 
 import { Fragment, useState } from "react";
 import { numberCitations, sourceName } from "@/lib/citations";
+import { plainText, richParts } from "@/lib/markdown";
 import type { Citation } from "@/lib/types";
 
 const FOCUS = "focus-visible:outline-2 focus-visible:outline-focus";
@@ -9,7 +10,8 @@ const FOCUS = "focus-visible:outline-2 focus-visible:outline-focus";
 /**
  * Answer text as plain React text. `[r1]`/`[j2]` labels that match a citation become numbered
  * superscript buttons (numbered by first appearance) that reveal the cited chunk; labels without a
- * citation are dropped. A half-typed label at the end is hidden while typing. Nothing is parsed as HTML.
+ * citation are dropped. A half-typed label at the end is hidden while typing. Light markdown (bold,
+ * bullets) is styled via `richParts`. Nothing is parsed as HTML.
  */
 export function AnswerText({
   text,
@@ -29,9 +31,15 @@ export function AnswerText({
   return (
     <div className="flex flex-col gap-2">
       <p aria-live={typing ? "off" : undefined} className="whitespace-pre-wrap [overflow-wrap:anywhere]">
-        {parts.map((part, i) =>
-          typeof part === "string" ? (
-            <Fragment key={i}>{part}</Fragment>
+        {richParts(parts).map((part, i) =>
+          "text" in part ? (
+            part.bold ? (
+              <strong key={i} className="font-semibold">
+                {part.text}
+              </strong>
+            ) : (
+              <Fragment key={i}>{part.text}</Fragment>
+            )
           ) : (
             <sup key={i}>
               <button
@@ -55,7 +63,7 @@ export function AnswerText({
         ) : null}
       </p>
       <div data-testid="answer-announce" role="status" aria-live="polite" className="sr-only">
-        {typing ? "" : parts.map((p) => (typeof p === "string" ? p : "")).join("")}
+        {typing ? "" : plainText(parts)}
       </div>
       {sources.length > 0 ? (
         <div className="flex select-none flex-wrap items-center gap-1.5 border-t border-border pt-2 text-xs text-muted">
