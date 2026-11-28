@@ -60,6 +60,39 @@ describe("Analysis", () => {
 
   const calledPost = () => fetchMock.mock.calls.some((c) => c[0] === "/api/stream/analyses");
 
+  const posts = () => fetchMock.mock.calls.filter((c) => c[0] === "/api/stream/analyses").length;
+
+  it("autoRun starts exactly one run on a 404 and reports the result", async () => {
+    post = () => sse(ev("done", analysis({ cached: false })));
+    const onResult = vi.fn();
+    const { rerender } = render(<Analysis docsVersion={1} autoRun onResult={onResult} />);
+    expect(await screen.findByText("72")).toBeInTheDocument();
+    rerender(<Analysis docsVersion={1} autoRun onResult={onResult} />);
+    expect(posts()).toBe(1);
+    await waitFor(() => expect(onResult).toHaveBeenLastCalledWith("a1"));
+  });
+
+  it("autoRun does not re-run after a failed run, nor with a stored result", async () => {
+    post = () => sse(ev("error", { code: "allowance_exceeded", message: "Daily limit reached." }));
+    const { rerender, unmount } = render(<Analysis docsVersion={1} autoRun />);
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Daily limit reached."));
+    rerender(<Analysis docsVersion={1} autoRun />);
+    expect(posts()).toBe(1);
+    unmount();
+    latest = () => json(200, analysis());
+    render(<Analysis docsVersion={1} autoRun />);
+    await screen.findByText("72");
+    expect(posts()).toBe(1);
+  });
+
+  it("without autoRun a 404 shows the run button and reports no result", async () => {
+    const onResult = vi.fn();
+    render(<Analysis docsVersion={1} onResult={onResult} />);
+    expect(await screen.findByRole("button", { name: /^run analysis$/i })).toBeInTheDocument();
+    await waitFor(() => expect(onResult).toHaveBeenLastCalledWith(null));
+    expect(posts()).toBe(0);
+  });
+
   it("restores the stored analysis without calling the POST", async () => {
     latest = () => json(200, analysis());
     render(<Analysis docsVersion={1} />);
@@ -182,6 +215,76 @@ describe("Analysis", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: /^run analysis$/i })).toBeEnabled());
     expect(screen.queryByText("41")).not.toBeInTheDocument();
     expect(screen.getByText(/documents changed/i)).toBeInTheDocument();
+  });
+
+  it("exposes the score as a meter with value, min and max", async () => {
+    latest = () => json(200, analysis());
+    render(<Analysis docsVersion={1} />);
+    const meter = await screen.findByRole("meter", { name: /match score/i });
+    expect(meter).toHaveAttribute("aria-valuenow", "72");
+    expect(meter).toHaveAttribute("aria-valuemin", "0");
+    expect(meter).toHaveAttribute("aria-valuemax", "100");
+  });
+
+  it("Next calls goTo('improve') and only shows with a result", async () => {
+    const goTo = vi.fn();
+    const user = userEvent.setup();
+    const { unmount } = render(<Analysis docsVersion={1} goTo={goTo} />);
+    await screen.findByRole("button", { name: /^run analysis$/i });
+    expect(screen.queryByRole("button", { name: /next: improve my resume/i })).not.toBeInTheDocument();
+    unmount();
+    latest = () => json(200, analysis());
+    render(<Analysis docsVersion={1} goTo={goTo} />);
+    await user.click(await screen.findByRole("button", { name: /next: improve my resume/i }));
+    expect(goTo).toHaveBeenCalledWith("improve");
+  });
+
+  it("shows friendly progress labels while running", async () => {
+    let release!: () => void;
+    post = () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(c) {
+            c.enqueue(encoder.encode(ev("progress", { step: "matching" })));
+            release = () => {
+              c.enqueue(encoder.encode(ev("done", analysis())));
+              c.close();
+            };
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "text/event-stream" } },
+      );
+    render(<Analysis docsVersion={1} autoRun />);
+    const status = await screen.findByText("Matching skills with evidence");
+    const line = status.closest("[role=status]")!;
+    expect(line).toHaveTextContent("Reading the job");
+    expect(line).toHaveTextContent("Reading the resume");
+    release();
+    await screen.findByText("72");
+  });
+
+  it("never reports null while re-running over a stored result", async () => {
+    latest = () => json(200, analysis());
+    post = () => sse(ev("done", analysis({ score: 90, cached: false })));
+    const onResult = vi.fn();
+    const user = userEvent.setup();
+    render(<Analysis docsVersion={1} onResult={onResult} />);
+    await user.click((await screen.findAllByRole("button", { name: /re-run analysis/i }))[0]);
+    await screen.findByText("90");
+    expect(onResult).not.toHaveBeenCalledWith(null);
+    expect(posts()).toBe(1);
+  });
+
+  it("keeps the result reported when a re-run fails", async () => {
+    latest = () => json(200, analysis());
+    post = () => sse(ev("error", { code: "allowance_exceeded", message: "Daily limit reached." }));
+    const onResult = vi.fn();
+    const user = userEvent.setup();
+    render(<Analysis docsVersion={1} onResult={onResult} />);
+    await user.click((await screen.findAllByRole("button", { name: /re-run analysis/i }))[0]);
+    await screen.findByRole("alert");
+    expect(onResult).not.toHaveBeenCalledWith(null);
+    expect(screen.getByText("72")).toBeInTheDocument();
   });
 
   it("highlights quotes containing regex characters", async () => {

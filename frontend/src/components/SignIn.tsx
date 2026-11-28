@@ -82,12 +82,13 @@ export function SignIn() {
           autoComplete="email"
           required
           maxLength={254}
+          placeholder="you@company.com"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           hint="We email you a 6-digit sign-in code. No password."
         />
         {error ? <Alert>{error}</Alert> : null}
-        <Button type="submit" disabled={busy}>
+        <Button type="submit" loading={busy} className="w-full">
           {busy ? "Sending…" : "Send sign-in code"}
         </Button>
       </form>
@@ -105,13 +106,14 @@ export function SignIn() {
         maxLength={6}
         required
         autoFocus
+        className="text-center text-lg tracking-[0.4em] tabular-nums"
         value={code}
         onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
         hint="If that address can receive mail, a code is on its way. It expires shortly."
       />
       {error ? <Alert>{error}</Alert> : null}
       {info ? <Alert tone="info">{info}</Alert> : null}
-      <Button type="submit" disabled={busy || code.length !== 6}>
+      <Button type="submit" disabled={busy || code.length !== 6} className="w-full">
         {busy ? "Checking…" : "Verify and continue"}
       </Button>
       <div className="flex flex-wrap items-center justify-between gap-2 text-sm">

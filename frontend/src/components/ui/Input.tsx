@@ -18,7 +18,7 @@ export function Input({
       <input
         id={inputId}
         aria-describedby={hint ? hintId : undefined}
-        className={`w-full rounded-md border border-border bg-surface px-3 py-2.5 text-base placeholder:text-muted focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus ${className}`}
+        className={`w-full rounded-lg border border-border bg-surface px-3 py-2.5 text-base shadow-sm placeholder:text-muted focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus ${className}`}
         {...props}
       />
       {hint ? (

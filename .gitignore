@@ -25,3 +25,6 @@ frontend/out
 frontend/test-results
 frontend/playwright-report
 frontend/AGENTS.md
+
+# Local planning/mockup scratch (brainstorm server, SDD ledgers)
+.superpowers/

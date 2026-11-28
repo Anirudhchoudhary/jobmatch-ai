@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Suggestions } from "./Suggestions";
@@ -44,6 +44,30 @@ describe("Suggestions", () => {
 
   const calledPost = () => fetchMock.mock.calls.some((c) => c[0] === "/api/stream/suggestions");
 
+  const posts = () => fetchMock.mock.calls.filter((c) => c[0] === "/api/stream/suggestions").length;
+
+  it("autoRun starts exactly one run when none are stored", async () => {
+    const onResult = vi.fn();
+    const { rerender } = render(<Suggestions autoRun onResult={onResult} />);
+    expect(await screen.findByText("Wrote backend code")).toBeInTheDocument();
+    rerender(<Suggestions autoRun onResult={onResult} />);
+    expect(posts()).toBe(1);
+    await waitFor(() => expect(onResult).toHaveBeenLastCalledWith(true));
+  });
+
+  it("autoRun does not run when rewrites are stored, and without autoRun nothing runs", async () => {
+    latest = () => json(200, stored());
+    const { unmount } = render(<Suggestions autoRun />);
+    await screen.findByText("Wrote backend code");
+    unmount();
+    latest = () => json(404, { error: { code: "suggestions_not_found", message: "x", request_id: "r" } });
+    const onResult = vi.fn();
+    render(<Suggestions onResult={onResult} />);
+    expect(await screen.findByRole("button", { name: /^suggest rewrites$/i })).toBeInTheDocument();
+    await waitFor(() => expect(onResult).toHaveBeenLastCalledWith(false));
+    expect(posts()).toBe(0);
+  });
+
   it("restores stored suggestions as original and rewritten pairs without posting", async () => {
     latest = () => json(200, stored());
     render(<Suggestions />);
@@ -58,12 +82,12 @@ describe("Suggestions", () => {
   it("shows the rejected count only when above zero", async () => {
     latest = () => json(200, stored(2));
     const { unmount } = render(<Suggestions />);
-    expect(await screen.findByText(/2 suggestions were rejected/i)).toBeInTheDocument();
+    expect(await screen.findByText(/2 rewrites blocked for adding facts not in your resume/i)).toBeInTheDocument();
     unmount();
     latest = () => json(200, stored());
     render(<Suggestions />);
     await screen.findByText("Wrote backend code");
-    expect(screen.queryByText(/were rejected/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/blocked for adding facts/i)).not.toBeInTheDocument();
   });
 
   it("streams from /api/stream/suggestions when Suggest rewrites is clicked on a 404", async () => {
@@ -101,6 +125,23 @@ describe("Suggestions", () => {
     release?.();
     expect(await screen.findByText("Wrote backend code")).toBeInTheDocument();
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("shows Before and After labels", async () => {
+    latest = () => json(200, stored());
+    render(<Suggestions />);
+    await screen.findByText("Wrote backend code");
+    expect(screen.getByText("Before")).toBeInTheDocument();
+    expect(screen.getByText("After")).toBeInTheDocument();
+  });
+
+  it("Next calls goTo('ask')", async () => {
+    latest = () => json(200, stored());
+    const goTo = vi.fn();
+    const user = userEvent.setup();
+    render(<Suggestions goTo={goTo} />);
+    await user.click(await screen.findByRole("button", { name: /next: ask questions/i }));
+    expect(goTo).toHaveBeenCalledWith("ask");
   });
 
   it("shows the message of an error event", async () => {

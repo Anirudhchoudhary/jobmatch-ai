@@ -12,7 +12,7 @@ export function Alert({ tone = "error", children }: { tone?: Tone; children: Rea
   return (
     <div
       role={tone === "error" ? "alert" : "status"}
-      className={`rounded-md border px-3 py-2.5 text-sm ${tones[tone]}`}
+      className={`rounded-lg border px-3 py-2.5 text-sm ${tones[tone]}`}
     >
       {children}
     </div>

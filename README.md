@@ -456,10 +456,12 @@ A Next.js static site in `frontend/` (static export, Tailwind) is served at http
 
 ### What the site does
 
+A guided four-step flow on a calm light design, with a new app icon:
+
 1. **Sign in:** enter an email, then the 6-digit code that was emailed.
-2. **Documents:** upload a resume (PDF) and paste a job description (text), or load the built-in samples. Ingestion progress streams in, and a reload restores your documents.
-3. **Analysis:** the match score with its breakdown and cited evidence, and resume bullet suggestions (streamed progress, then the rewrites).
-4. **Chat:** streamed answers with clickable citations that open the cited chunk, and a "Show guardrails" panel listing the verdict and every check that ran, with the ones that fired highlighted.
+2. **Documents:** drop or choose a resume (PDF) and paste a job description, or try the sample. Ingestion starts instantly with live status cards, then moves you on to Match. A reload restores your documents and your place.
+3. **Match and Improve:** the match score ring with its breakdown and cited evidence runs automatically when you arrive, and resume bullet suggestions follow on the next step. A reload never spends a new run.
+4. **Ask:** starter questions or your own, answered with smooth typing, numbered source citations (a Sources row you can open to read the cited passage) and a "Show guardrails" panel listing the verdict and every check that ran.
 
 ### Run it locally
 
@@ -476,7 +478,7 @@ Locally the sign-in code is not emailed: find `login_code_console` in `make logs
 
 ```sh
 make fe-test    # eslint, tsc and the Vitest unit tests
-make fe-e2e     # Playwright: sign in, sample, analysis, chat, guardrails, reload, sign out
+make fe-e2e     # Playwright: sign in, sample, match, improve, ask, guardrails, reload, sign out
 ```
 
 `make fe-e2e` needs the offline API running as above, starts `next dev` itself and reads the sign-in code from the API container log. CI runs the unit tests, the static build and the end-to-end flow (`.github/workflows/`).

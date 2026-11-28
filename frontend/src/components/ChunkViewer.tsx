@@ -43,11 +43,11 @@ export function ChunkViewer({ chunkId, quote }: { chunkId: string; quote: string
           <q>{quote}</q>
         </p>
       )}
-      <p className="whitespace-pre-wrap">
+      <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">
         {parts ? (
           <>
             {parts[0]}
-            <mark className="rounded bg-yellow-200 px-0.5 text-black">{parts[1]}</mark>
+            <mark className="rounded bg-warning-soft px-0.5 font-medium text-foreground">{parts[1]}</mark>
             {parts[2]}
           </>
         ) : (

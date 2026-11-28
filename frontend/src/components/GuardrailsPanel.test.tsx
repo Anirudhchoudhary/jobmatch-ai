@@ -67,4 +67,22 @@ describe("GuardrailsPanel", () => {
     expect(screen.getByText(/flagged/i)).toBeInTheDocument();
     expect(screen.getByText("Led a team of 50")).toBeInTheDocument();
   });
+
+  it("only references a controlled region that exists", async () => {
+    const user = userEvent.setup();
+    render(<GuardrailsPanel checks={[check({})]} verdict={grounded} />);
+    const btn = screen.getByRole("button", { name: "Show guardrails" });
+    expect(btn).not.toHaveAttribute("aria-controls");
+    await user.click(screen.getByRole("button", { name: "Show guardrails" }));
+    const id = screen.getByRole("button", { name: "Hide guardrails" }).getAttribute("aria-controls")!;
+    expect(document.getElementById(id)).not.toBeNull();
+  });
+
+  it("strips citation codes from unsupported claims", async () => {
+    const user = userEvent.setup();
+    const flag: Verdict = { grounded: false, action: "flag", unsupported_claims: ["Has Go [r2] experience"], mode: "enforce" };
+    render(<GuardrailsPanel checks={[check({})]} verdict={flag} />);
+    await user.click(screen.getByRole("button", { name: "Show guardrails" }));
+    expect(screen.getByText("Has Go experience")).toBeInTheDocument();
+  });
 });
