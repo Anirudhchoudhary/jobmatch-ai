@@ -82,12 +82,12 @@ describe("Suggestions", () => {
   it("shows the rejected count only when above zero", async () => {
     latest = () => json(200, stored(2));
     const { unmount } = render(<Suggestions />);
-    expect(await screen.findByText(/2 suggestions were rejected/i)).toBeInTheDocument();
+    expect(await screen.findByText(/2 rewrites blocked for adding facts not in your resume/i)).toBeInTheDocument();
     unmount();
     latest = () => json(200, stored());
     render(<Suggestions />);
     await screen.findByText("Wrote backend code");
-    expect(screen.queryByText(/were rejected/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/blocked for adding facts/i)).not.toBeInTheDocument();
   });
 
   it("streams from /api/stream/suggestions when Suggest rewrites is clicked on a 404", async () => {
@@ -125,6 +125,23 @@ describe("Suggestions", () => {
     release?.();
     expect(await screen.findByText("Wrote backend code")).toBeInTheDocument();
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("shows Before and After labels", async () => {
+    latest = () => json(200, stored());
+    render(<Suggestions />);
+    await screen.findByText("Wrote backend code");
+    expect(screen.getByText("Before")).toBeInTheDocument();
+    expect(screen.getByText("After")).toBeInTheDocument();
+  });
+
+  it("Next calls goTo('ask')", async () => {
+    latest = () => json(200, stored());
+    const goTo = vi.fn();
+    const user = userEvent.setup();
+    render(<Suggestions goTo={goTo} />);
+    await user.click(await screen.findByRole("button", { name: /next: ask questions/i }));
+    expect(goTo).toHaveBeenCalledWith("ask");
   });
 
   it("shows the message of an error event", async () => {

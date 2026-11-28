@@ -96,8 +96,8 @@ export function Workspace() {
             docsVersion={flow.docsVersion}
             autoRun={step === "match" && byUser && !done.match}
             onResult={onAnalysisResult}
+            goTo={goTo}
           />
-          {unlocked.improve ? <NextButton onClick={() => goTo("improve")}>Next: improve my resume</NextButton> : null}
         </StepPanel>
       ) : null}
 
@@ -108,13 +108,13 @@ export function Workspace() {
               key={analysisId}
               autoRun={step === "improve" && byUser && !done.improve}
               onResult={flow.onSuggestions}
+              goTo={goTo}
             />
           ) : (
             <p role="status" className="text-muted">
               Loading…
             </p>
           )}
-          <NextButton onClick={() => goTo("ask")}>Next: ask questions</NextButton>
         </StepPanel>
       ) : null}
 
