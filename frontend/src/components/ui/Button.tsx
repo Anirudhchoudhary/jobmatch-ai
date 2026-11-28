@@ -12,6 +12,11 @@ const variants: Record<Variant, string> = {
   link: "text-brand underline underline-offset-2 hover:text-brand-hover px-1 py-0.5",
 };
 
+/** Button styling for elements that are not buttons, such as links that look like buttons. */
+export function buttonClasses(variant: Variant = "primary", className = ""): string {
+  return `inline-flex items-center justify-center gap-2 rounded-lg text-sm transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:cursor-not-allowed disabled:opacity-60 ${variants[variant]} ${className}`;
+}
+
 export function Button({
   variant = "primary",
   loading = false,
@@ -26,7 +31,7 @@ export function Button({
       type={type}
       disabled={disabled || loading}
       aria-busy={loading || undefined}
-      className={`inline-flex items-center justify-center gap-2 rounded-lg text-sm transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:cursor-not-allowed disabled:opacity-60 ${variants[variant]} ${className}`}
+      className={buttonClasses(variant, className)}
       {...props}
     >
       {loading ? <Loader2 role="status" aria-label="Loading" className="jm-spin size-4" /> : null}

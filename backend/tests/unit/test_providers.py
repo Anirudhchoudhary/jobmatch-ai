@@ -61,7 +61,7 @@ def test_anthropic_chat_model_builds_offline(monkeypatch: pytest.MonkeyPatch) ->
     m = make_chat_model(get_settings())
     assert isinstance(m, ChatAnthropic)
     assert m.reasoning_effort == "medium"
-    assert m.max_tokens == 1024
+    assert m.max_tokens == 4096  # thinking counts against it
 
 
 def test_env_isolation_covers_all_fields() -> None:

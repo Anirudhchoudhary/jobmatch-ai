@@ -66,6 +66,24 @@ describe("useFlow", () => {
     expect(result.current.done.improve).toBe(s);
   });
 
+  it("lands on the requested step instead of the furthest one, still as a restore", async () => {
+    documents = [doc("resume"), doc("jd")];
+    analysis = true;
+    suggestions = true;
+    const hook = renderHook(() => useFlow({ landOn: "match" }));
+    await waitFor(() => expect(hook.result.current.restoring).toBe(false));
+    expect(hook.result.current.step).toBe("match");
+    expect(hook.result.current.arrival).toBe("restore");
+    expect(hook.result.current.unlocked.ask).toBe(true);
+  });
+
+  it("falls back to the furthest open step when the requested one is locked", async () => {
+    documents = [doc("resume"), doc("jd")];
+    const hook = renderHook(() => useFlow({ landOn: "ask" }));
+    await waitFor(() => expect(hook.result.current.restoring).toBe(false));
+    expect(hook.result.current.step).toBe("match");
+  });
+
   it("ignores a stored analysis when the documents are not both ready", async () => {
     documents = [doc("resume")];
     analysis = true;

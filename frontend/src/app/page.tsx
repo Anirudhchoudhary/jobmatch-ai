@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FileCheck, MessageSquareQuote, ShieldCheck, Sparkles } from "lucide-react";
+import { FileCheck, MessageSquareQuote, PlayCircle, ShieldCheck, Sparkles } from "lucide-react";
 import { SignIn } from "@/components/SignIn";
 import { Alert } from "@/components/ui/Alert";
+import { buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Logo } from "@/components/ui/Logo";
 import { useSession } from "@/lib/session";
@@ -47,6 +49,13 @@ export default function Home() {
               </li>
             ))}
           </ul>
+          <div className="mt-8 flex flex-wrap items-center gap-3">
+            <Link href="/demo/" className={buttonClasses("primary", "px-5 py-3 text-base")}>
+              <PlayCircle aria-hidden="true" className="size-5" />
+              See a live demo
+            </Link>
+            <span className="text-sm text-muted">No sign-in needed</span>
+          </div>
         </section>
         <Card className="w-full md:max-w-sm" title="Sign in with a code">
           <div className="flex flex-col gap-4">

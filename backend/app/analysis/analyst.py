@@ -73,6 +73,10 @@ def _evidence_errors(path: str, evidence: Sequence[EvidenceDraft], allowed: set[
     ]
 
 
+def _norm(text: str) -> str:
+    return " ".join(text.split()).casefold()
+
+
 def _unescape(value: Any) -> Any:
     if isinstance(value, str):
         return html.unescape(value)
@@ -237,4 +241,5 @@ class ClaudeAnalyst:
             f"requirements:\n{target_json}"
         )
         out = await self._run(SuggestionsOut, "rewrite_bullets", bullets, task, validate)
-        return out.suggestions
+        # A "rewrite" identical to its bullet suggests nothing; showing it looks broken.
+        return [s for s in out.suggestions if _norm(s.rewritten) != _norm(s.original)]

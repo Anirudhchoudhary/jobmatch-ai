@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { apiGet } from "./api";
+import { useBackend, type Backend } from "./backend";
 import type { DocumentList } from "./types";
 
 export type StepId = "documents" | "match" | "improve" | "ask";
@@ -61,8 +61,8 @@ function settle(s: FlowState): FlowState {
   return { ...s, step };
 }
 
-const exists = (path: string) =>
-  apiGet<unknown>(path).then(
+const exists = (backend: Backend, path: string) =>
+  backend.get<unknown>(path).then(
     () => true,
     () => false,
   );
@@ -73,28 +73,29 @@ const bothReady = ({ documents }: DocumentList) =>
 /**
  * The guided flow's state. Paid runs (analysis, suggestions) may start automatically only when
  * `arrival === "user"`; a reload restores the furthest step the stored data supports with
- * `arrival: "restore"`, which never auto-runs.
+ * `arrival: "restore"`, which never auto-runs. `landOn` picks the restored step instead (if open).
  */
-export function useFlow(): Flow {
+export function useFlow({ landOn }: { landOn?: StepId } = {}): Flow {
+  const backend = useBackend();
   const [s, setS] = useState<FlowState>(INITIAL);
 
   useEffect(() => {
     let cancelled = false;
     void Promise.all([
-      apiGet<DocumentList>("/api/documents").then(bothReady, () => false),
-      exists("/api/analyses/latest"),
-      exists("/api/suggestions/latest"),
+      backend.get<DocumentList>("/api/documents").then(bothReady, () => false),
+      exists(backend, "/api/analyses/latest"),
+      exists(backend, "/api/suggestions/latest"),
     ]).then(([docsReady, analysis, suggestions]) => {
       if (cancelled) return;
       const hasAnalysis = docsReady && analysis;
       const hasSuggestions = hasAnalysis && suggestions;
-      const step: StepId = hasSuggestions ? "ask" : hasAnalysis ? "improve" : docsReady ? "match" : "documents";
-      setS((prev) => ({ ...prev, step, arrival: "restore", restoring: false, docsReady, hasAnalysis, hasSuggestions }));
+      const furthest: StepId = hasSuggestions ? "ask" : hasAnalysis ? "improve" : docsReady ? "match" : "documents";
+      setS((prev) => settle({ ...prev, step: landOn ?? furthest, arrival: "restore", restoring: false, docsReady, hasAnalysis, hasSuggestions }));
     });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [backend, landOn]);
 
   const goTo = useCallback((step: StepId) => {
     // Re-selecting the current step is not a new arrival: it must not turn a restore into a paid auto-run.

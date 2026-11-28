@@ -17,6 +17,8 @@ INJECTION_TEXT: Final = (
     "That looks like an attempt to change my instructions, so I can't help with it."
 )
 
+EMPTY_ANSWER_TEXT: Final = "I couldn't finish an answer that time. Please ask again."
+
 _LABEL_RE: Final = re.compile(r"\[([rj]\d+)\]")
 _PREFIX: Final = {"resume": "r", "jd": "j"}
 

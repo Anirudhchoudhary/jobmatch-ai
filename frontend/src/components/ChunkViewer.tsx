@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { Alert } from "@/components/ui/Alert";
-import { apiGet, GENERIC_ERROR_MESSAGE } from "@/lib/api";
+import { GENERIC_ERROR_MESSAGE } from "@/lib/api";
+import { useBackend } from "@/lib/backend";
 import type { ChunkText } from "@/lib/types";
 
 /** Split `text` around the first case-insensitive occurrence of `quote`; null when absent. */
@@ -15,18 +16,20 @@ function splitAtQuote(text: string, quote: string): [string, string, string] | n
 
 /** Fetches one chunk and shows it with the evidence quote highlighted (or quoted above it). */
 export function ChunkViewer({ chunkId, quote }: { chunkId: string; quote: string }) {
+  const backend = useBackend();
   const [chunk, setChunk] = useState<ChunkText | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    apiGet<ChunkText>(`/api/chunks/${chunkId}`)
+    backend
+      .get<ChunkText>(`/api/chunks/${chunkId}`)
       .then((c) => !cancelled && setChunk(c))
       .catch((e: unknown) => !cancelled && setError(e instanceof Error && e.message ? e.message : GENERIC_ERROR_MESSAGE));
     return () => {
       cancelled = true;
     };
-  }, [chunkId]);
+  }, [backend, chunkId]);
 
   if (error) return <Alert>{error}</Alert>;
   if (!chunk) return <p role="status" className="text-sm text-muted">Loading section…</p>;

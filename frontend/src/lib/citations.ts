@@ -2,9 +2,12 @@ import type { Citation } from "./types";
 
 const LABEL_RE = /\[([rj]\d+)\]/g;
 
-/** Removes `[r1]`/`[j2]` labels from free text (e.g. an unsupported claim) and tidies the spacing. */
+/**
+ * Removes `[r1]`/`[j2]` labels and markdown emphasis (`**`) from free text (e.g. an unsupported
+ * claim) and tidies the spacing.
+ */
 export function stripCitationLabels(text: string): string {
-  return text.replace(LABEL_RE, "").replace(/\s+([.,;:!?])/g, "$1").replace(/\s{2,}/g, " ").trim();
+  return text.replace(LABEL_RE, "").replace(/\*\*/g, "").replace(/\s+([.,;:!?])/g, "$1").replace(/\s{2,}/g, " ").trim();
 }
 
 export type AnswerPart = string | { n: number; label: string };

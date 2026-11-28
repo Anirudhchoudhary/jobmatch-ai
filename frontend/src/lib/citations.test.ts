@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { numberCitations, sourceName } from "./citations";
+import { numberCitations, sourceName, stripCitationLabels } from "./citations";
 import type { Citation } from "./types";
 
 const cite = (label: string, section = "Summary"): Citation => ({
@@ -43,5 +43,13 @@ describe("sourceName", () => {
     expect(sourceName(cite("r1", "candidate's skills"))).toBe("Resume · Candidate's Skills");
     expect(sourceName(cite("r1", "node.js"))).toBe("Resume · Node.js");
     expect(sourceName(cite("j1", "Requirements"))).toBe("Job description · Requirements");
+  });
+});
+
+describe("stripCitationLabels", () => {
+  it("removes labels and markdown bold and tidies spacing", () => {
+    expect(stripCitationLabels("**Kafka:** the role asks for it [j2] , and you have it [r1].")).toBe(
+      "Kafka: the role asks for it, and you have it.",
+    );
   });
 });

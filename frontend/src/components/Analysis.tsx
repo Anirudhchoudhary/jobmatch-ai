@@ -9,8 +9,8 @@ import { StatusLine, type StatusItem } from "@/components/ui/StatusLine";
 import { ChunkViewer } from "@/components/ChunkViewer";
 import { ScoreRing } from "@/components/ScoreRing";
 import type { StepId } from "@/lib/flow";
-import { apiGet, ApiError, GENERIC_ERROR_MESSAGE } from "@/lib/api";
-import { streamSse } from "@/lib/sse";
+import { ApiError, GENERIC_ERROR_MESSAGE } from "@/lib/api";
+import { useBackend } from "@/lib/backend";
 import type { MatchAnalysis, MatchStatus, SkillMatch } from "@/lib/types";
 
 // Backend progress steps in order (`loading` precedes all of them), with friendly labels.
@@ -98,6 +98,7 @@ export function Analysis({
   goTo?: (step: StepId) => void;
   onResult?: (analysisId: string | null) => void;
 }) {
+  const backend = useBackend();
   const [result, setResult] = useState<MatchAnalysis | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [stale, setStale] = useState(false);
@@ -113,7 +114,8 @@ export function Analysis({
 
   useEffect(() => {
     let cancelled = false;
-    apiGet<MatchAnalysis>("/api/analyses/latest")
+    backend
+      .get<MatchAnalysis>("/api/analyses/latest")
       .then((a) => !cancelled && setResult(a))
       .catch((e: unknown) => {
         if (cancelled || (e instanceof ApiError && e.code === "analysis_not_found")) return;
@@ -123,7 +125,7 @@ export function Analysis({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [backend]);
 
   useEffect(() => {
     if (seenVersion.current !== docsVersion) {
@@ -150,7 +152,7 @@ export function Analysis({
     const startVersion = seenVersion.current;
     try {
       let fresh: MatchAnalysis | null = null;
-      await streamSse("/api/stream/analyses", {}, (name, data) => {
+      await backend.stream("/api/stream/analyses", {}, (name, data) => {
         if (name === "progress") setStep((data as { step: string }).step);
         else if (name === "done") fresh = data as MatchAnalysis;
       });
