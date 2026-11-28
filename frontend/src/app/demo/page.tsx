@@ -29,7 +29,7 @@ export default function DemoPage() {
         className="mt-4 flex flex-wrap items-center gap-3 rounded-[var(--radius-card)] border border-brand/30 bg-brand-soft px-4 py-3"
       >
         <PlayCircle aria-hidden="true" className="size-5 shrink-0 text-brand" />
-        <p className="min-w-0 flex-1 text-sm">
+        <p className="min-w-[14rem] flex-1 text-sm">
           <b>Recorded example with a sample resume.</b> Every step below is a real run, replayed in your browser.
         </p>
         <Link href="/" className={buttonClasses("link", "text-sm font-medium")}>
