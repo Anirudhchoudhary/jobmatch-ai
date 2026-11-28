@@ -95,6 +95,11 @@ progressively, so the user senses something being generated.
 - Working-steps line in chat uses the existing SSE `progress` events (checking_input, retrieving,
   reranking, generating) mapped to plain words; "Verified" appears when the `verdict` arrives.
 - Sources row shows doc type and section from `done.citations`; numbering resets per answer.
+- **Ingestion starts immediately (author, after approval):** dropping or choosing a resume PDF
+  starts the upload to S3 and indexing into pgvector at once (no separate upload button), with
+  the live status card. Pasting a job description of at least 50 characters starts indexing at
+  once; text typed by hand gets an "Add job description" button so partial text is never indexed.
+  When both are ready, Step 1 advances to Match and the analysis runs (as below).
 - **When paid runs start (refines §2.5/§2.6):** a paid run starts automatically only when the
   user's own action brought them to the step — the automatic move from Step 1 after uploading,
   or clicking a "Next" button / a step in the progress bar. A page reload never starts one: it
