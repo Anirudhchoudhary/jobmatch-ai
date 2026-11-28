@@ -516,7 +516,10 @@ ensure_distribution() {
     awse cloudfront get-distribution-config --id "$existing" --output json >"$current"
     etag=$(jq -r .ETag "$current")
     caller_ref=$(jq -r .DistributionConfig.CallerReference "$current")
-    distribution_config "$caller_ref" >"$config"
+    # UpdateDistribution needs the complete config, including fields CloudFront filled in on
+    # create (e.g. Logging), so lay our settings over the current config instead of replacing it.
+    distribution_config "$caller_ref" |
+      jq --slurpfile current "$current" '$current[0].DistributionConfig * .' >"$config"
     log "updating CloudFront distribution $existing"
     awse cloudfront update-distribution --id "$existing" --if-match "$etag" \
       --distribution-config "file://$config" >/dev/null
