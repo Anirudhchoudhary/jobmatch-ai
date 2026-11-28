@@ -29,7 +29,7 @@ test("sign in, sample, analysis, chat, guardrails, reload, sign out", async ({ p
   await page.getByRole("button", { name: "Verify and continue" }).click();
 
   await expect(page).toHaveURL(/\/app\/$/);
-  await page.getByRole("button", { name: "Try with sample resume + JD" }).click();
+  await page.getByRole("button", { name: "Try the sample" }).click();
   await expect(page.getByText("Job description", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Run analysis" }).click();

@@ -1,6 +1,7 @@
 export type ProgressStatus = "started" | "done";
 
 const STEPS: [string, string][] = [
+  ["uploading", "Uploading the file"],
   ["validating", "Checking the file"],
   ["parsing", "Reading the file"],
   ["chunking", "Splitting into sections"],
@@ -9,7 +10,7 @@ const STEPS: [string, string][] = [
   ["storing", "Saving"],
 ];
 
-/** Pipeline steps as they stream in; `steps` maps a backend step name to its latest status. */
+/** Pipeline steps as they stream in ("uploading" is client-side, the rest come from the backend); `steps` maps a backend step name to its latest status. */
 export function Progress({ steps }: { steps: Record<string, ProgressStatus> }) {
   return (
     <ol aria-label="Progress" className="flex flex-col gap-1 text-sm">

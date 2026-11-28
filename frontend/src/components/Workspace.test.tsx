@@ -78,8 +78,10 @@ describe("Workspace", { timeout: 15000 }, () => {
   const stepTitle = (name: RegExp) => screen.findByRole("heading", { level: 1, name });
 
   async function replaceJd(user: ReturnType<typeof userEvent.setup>) {
-    await user.type(screen.getByLabelText(/^job description$/i), "y".repeat(50));
-    await user.click(screen.getByRole("button", { name: /use this job description/i }));
+    const replace = screen.queryByRole("button", { name: /replace job description/i });
+    if (replace) await user.click(replace);
+    await user.type(await screen.findByLabelText(/^job description$/i), "y".repeat(50));
+    await user.click(screen.getByRole("button", { name: /add job description/i }));
   }
 
   it("lands on documents with later steps locked when nothing is stored", async () => {
