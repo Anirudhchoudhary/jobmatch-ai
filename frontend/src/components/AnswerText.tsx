@@ -28,7 +28,7 @@ export function AnswerText({
 
   return (
     <div className="flex flex-col gap-2">
-      <p aria-live={typing ? "off" : undefined} className="whitespace-pre-wrap">
+      <p aria-live={typing ? "off" : undefined} className="whitespace-pre-wrap [overflow-wrap:anywhere]">
         {parts.map((part, i) =>
           typeof part === "string" ? (
             <Fragment key={i}>{part}</Fragment>
@@ -54,6 +54,9 @@ export function AnswerText({
           />
         ) : null}
       </p>
+      <div data-testid="answer-announce" role="status" aria-live="polite" className="sr-only">
+        {typing ? "" : parts.map((p) => (typeof p === "string" ? p : "")).join("")}
+      </div>
       {sources.length > 0 ? (
         <div className="flex select-none flex-wrap items-center gap-1.5 border-t border-border pt-2 text-xs text-muted">
           <span>Sources</span>
@@ -73,7 +76,7 @@ export function AnswerText({
       {opened ? (
         <blockquote className="rounded-md border border-border bg-surface-muted p-3 text-sm">
           <p className="mb-1 font-medium text-muted">{sourceName(opened)}</p>
-          <p aria-live={typing ? "off" : undefined} className="whitespace-pre-wrap">{opened.text}</p>
+          <p aria-live={typing ? "off" : undefined} className="whitespace-pre-wrap [overflow-wrap:anywhere]">{opened.text}</p>
         </blockquote>
       ) : null}
     </div>

@@ -22,7 +22,7 @@ export function GuardrailsPanel({ checks, verdict }: { checks: GuardrailOutcome[
       <button
         type="button"
         aria-expanded={open}
-        aria-controls={id}
+        aria-controls={open ? id : undefined}
         onClick={() => setOpen(!open)}
         className="rounded-md px-1 py-0.5 text-xs font-medium text-brand hover:bg-brand-soft focus-visible:outline-2 focus-visible:outline-focus"
       >

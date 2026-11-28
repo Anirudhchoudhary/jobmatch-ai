@@ -199,10 +199,10 @@ describe("Workspace", { timeout: 15000 }, () => {
     await stepTitle(/step 3/i);
     await user.click(stepButton(/ask/i));
     await user.click(await screen.findByRole("button", { name: "What's my biggest gap?" }));
-    expect(await screen.findByText("A fine answer.")).toBeInTheDocument();
+    expect(await screen.findByText("A fine answer.", { selector: "p" })).toBeInTheDocument();
     await user.click(stepButton(/match/i));
     await user.click(stepButton(/ask/i));
-    expect(screen.getByText("A fine answer.")).toBeVisible();
+    expect(screen.getByText("A fine answer.", { selector: "p" })).toBeVisible();
     expect(posts("/api/stream/chat")).toBe(1);
   });
   it.each([

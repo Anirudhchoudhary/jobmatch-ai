@@ -123,11 +123,11 @@ export function Suggestions({
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="rounded-lg border border-border bg-surface-muted p-3 text-sm text-muted">
                       <p className="mb-1 font-semibold text-foreground">Before</p>
-                      <p>{s.original}</p>
+                      <p className="[overflow-wrap:anywhere]">{s.original}</p>
                     </div>
                     <div className="rounded-lg border border-success/30 bg-success-soft p-3 text-sm">
                       <p className="mb-1 font-semibold">After</p>
-                      <p>{s.rewritten}</p>
+                      <p className="[overflow-wrap:anywhere]">{s.rewritten}</p>
                     </div>
                   </div>
                   <p className="text-sm text-muted">

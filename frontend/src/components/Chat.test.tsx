@@ -176,9 +176,9 @@ describe("Chat", () => {
     const user = userEvent.setup();
     render(<Chat />);
     await ask(user, "Q1");
-    await screen.findByText("First answer");
+    await screen.findByText("First answer", { selector: "p" });
     await ask(user, "Q2");
-    await screen.findByText("Second answer");
+    await screen.findByText("Second answer", { selector: "p" });
     const items = screen.getAllByRole("listitem", { name: /conversation turn/i });
     expect(items[0]).toHaveTextContent("Q1");
     expect(items[1]).toHaveTextContent("Q2");
@@ -221,7 +221,7 @@ describe("Chat", () => {
     const { container } = render(<Chat />);
     await ask(user);
     expect(await screen.findByRole("alert")).toHaveTextContent(/connection dropped/i);
-    expect(screen.getByText("partial answer")).toBeInTheDocument();
+    expect(screen.getByText("partial answer", { selector: "p" })).toBeInTheDocument();
     expect(container.querySelector("[data-cursor]")).toBeNull();
   });
 
@@ -270,5 +270,57 @@ describe("Chat", () => {
     await ask(user);
     await screen.findByRole("listitem", { name: "Conversation turn" });
     expect(screen.queryByRole("button", { name: "What's my biggest gap?" })).not.toBeInTheDocument();
+  });
+
+  it("ticks 'Verified against sources' only for a grounded answer", async () => {
+    fetchMock.mockResolvedValueOnce(sse(ev("progress", { step: "generating" }), ev("verdict", allowVerdict), ev("done", done())));
+    const user = userEvent.setup();
+    render(<Chat />);
+    await ask(user);
+    expect(await screen.findByText("Verified against sources")).toBeInTheDocument();
+  });
+
+  it("shows a warning instead of 'Verified' for a flagged answer", async () => {
+    const flag = { grounded: false, action: "flag", unsupported_claims: ["x"], mode: "enforce" };
+    fetchMock.mockResolvedValueOnce(sse(ev("progress", { step: "generating" }), ev("verdict", flag), ev("done", done())));
+    const user = userEvent.setup();
+    render(<Chat />);
+    await ask(user);
+    expect(await screen.findByText("Some claims not verified")).toBeInTheDocument();
+    expect(screen.queryByText("Verified against sources")).not.toBeInTheDocument();
+  });
+
+  it("does not tick steps never reached for a refused answer", async () => {
+    fetchMock.mockResolvedValueOnce(
+      sse(ev("progress", { step: "checking_input" }), ev("done", done({ refused: true, answer: "No.", citations: [] }))),
+    );
+    const user = userEvent.setup();
+    render(<Chat />);
+    await ask(user);
+    await screen.findByText("Not answered");
+    expect(screen.queryByText("Verified against sources")).not.toBeInTheDocument();
+    expect(screen.queryByText("Searched your documents")).not.toBeInTheDocument();
+    expect(screen.getByText("Checked your question")).toBeInTheDocument();
+  });
+
+  it("keeps a half-typed draft when a starter chip is sent", async () => {
+    fetchMock.mockResolvedValueOnce(sse(ev("done", done())));
+    const user = userEvent.setup();
+    render(<Chat />);
+    await user.type(screen.getByLabelText(/ask a question/i), "my draft");
+    await user.click(screen.getByRole("button", { name: "What's my biggest gap?" }));
+    await screen.findByRole("listitem", { name: "Conversation turn" });
+    expect(screen.getByLabelText(/ask a question/i)).toHaveValue("my draft");
+  });
+
+  it("announces the final answer once in a polite live region", async () => {
+    fetchMock.mockResolvedValueOnce(sse(ev("token", { text: "Python at Acme [r1]." }), ev("done", done())));
+    const user = userEvent.setup();
+    render(<Chat />);
+    await ask(user);
+    const live = await screen.findByTestId("answer-announce");
+    await waitFor(() => expect(live).toHaveTextContent("Python at Acme ."));
+    expect(live).toHaveAttribute("aria-live", "polite");
+    expect(live).not.toHaveTextContent("[r1]");
   });
 });

@@ -39,13 +39,19 @@ test("sign in, sample, match, improve, ask, guardrails, reload, sign out", async
 
   await page.getByRole("button", { name: /^Next/ }).click();
   await expect(page.getByRole("heading", { level: 1, name: /step 3/i })).toBeVisible();
-  // Suggestions auto-run; Next appears once they have finished.
+  // Suggestions auto-run; wait for the rewrites to land before moving on.
+  await expect(page.getByRole("button", { name: "Suggest again" })).toBeVisible();
   await page.getByRole("button", { name: /^Next/ }).click();
   await expect(page.getByRole("heading", { level: 1, name: /step 4/i })).toBeVisible();
 
   await page.getByRole("button", { name: "What's my biggest gap?" }).click();
-  // The offline fake model's answer is not asserted on; only that a turn completes with its UI.
-  await expect(page.getByRole("listitem", { name: "Conversation turn" })).toHaveCount(1);
+  // The offline fake model's answer text is not asserted on; only that a turn completes with its UI.
+  const turn = page.getByRole("listitem", { name: "Conversation turn" });
+  await expect(turn).toHaveCount(1);
+  // The Sources row appears when the answer cites anything (labels are never shown raw).
+  await expect(turn.getByText("Sources", { exact: true })).toBeVisible();
+  await expect(turn.getByRole("button", { name: /^1 Resume · / })).toBeVisible();
+  await expect(turn.locator("p.whitespace-pre-wrap")).not.toContainText("[r1]");
   const guardrails = page.getByRole("button", { name: "Show guardrails" });
   await expect(guardrails).toBeVisible();
   await guardrails.click();

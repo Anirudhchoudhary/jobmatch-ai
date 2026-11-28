@@ -1,6 +1,6 @@
-import { Check, Circle, Loader2 } from "lucide-react";
+import { AlertTriangle, Check, Circle, Loader2 } from "lucide-react";
 
-export type StatusItem = { label: string; state: "done" | "active" | "pending" };
+export type StatusItem = { label: string; state: "done" | "active" | "pending" | "warn" };
 
 /** A one-line progress list; changes are announced politely to screen readers. */
 export function StatusLine({ items }: { items: StatusItem[] }) {
@@ -16,6 +16,8 @@ export function StatusLine({ items }: { items: StatusItem[] }) {
           >
             {item.state === "done" ? (
               <Check aria-hidden="true" className="size-4 text-success" />
+            ) : item.state === "warn" ? (
+              <AlertTriangle aria-hidden="true" className="size-4 text-warning" />
             ) : item.state === "active" ? (
               <Loader2 aria-hidden="true" className="jm-spin size-4 text-brand" />
             ) : (

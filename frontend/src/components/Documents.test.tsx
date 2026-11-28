@@ -351,4 +351,24 @@ describe("Documents", () => {
       vi.useRealTimers();
     }
   });
+
+  it("lets the user re-add their own earlier job description after the sample", async () => {
+    post = (path) =>
+      path === "/api/samples"
+        ? sse(ev("done", ready("resume")), ev("done", ready("jd")))
+        : sse(prog("validating", "started"), ev("done", ready("jd")));
+    const user = userEvent.setup();
+    render(<Documents onReady={vi.fn()} />);
+    await user.click(await screen.findByLabelText(/job description/i));
+    await user.paste("s".repeat(60));
+    await waitFor(() => expect(jdPosts()).toBe(1));
+    await waitFor(() => expect(screen.getByLabelText(/job description/i)).toHaveValue(""));
+    documents = [doc("resume", "sample-resume.pdf"), doc("jd", null)];
+    await user.click(screen.getByRole("button", { name: /try the sample/i }));
+    await waitFor(() => expect(fetchMock.mock.calls.some((c) => c[0] === "/api/samples")).toBe(true));
+    await user.click(await screen.findByRole("button", { name: /replace job description/i }));
+    await user.click(await screen.findByLabelText(/job description/i));
+    await user.paste("s".repeat(60));
+    await waitFor(() => expect(jdPosts()).toBe(2));
+  });
 });

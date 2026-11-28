@@ -168,8 +168,10 @@ export function Documents({
     );
   }
 
-  const trySample = () =>
+  const trySample = () => {
+    lastJd.current = null; // the sample replaces the JD, so the user's earlier text may be added again
     void run(["resume", "jd"], () => stream("/api/samples", {}, 2));
+  };
 
   const submitJd = (text: string) => {
     const body = text.trim();

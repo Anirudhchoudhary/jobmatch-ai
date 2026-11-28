@@ -60,7 +60,11 @@ function WorkingLine({ turn, sources }: { turn: Turn; sources: number }) {
   const reached = turn.step === null ? -1 : (STEP_INDEX[turn.step] ?? -1);
   if (turn.error || (!finished && reached < 0)) return null;
   const items: StatusItem[] = WORK_STEPS.map(([doing, did], i) => {
-    const state = finished || i < reached ? "done" : i === reached ? "active" : "pending";
+    const last = i === WORK_STEPS.length - 1;
+    if (finished && last && turn.verdict?.action === "flag") return { label: "Some claims not verified", state: "warn" };
+    // Once finished, only the steps the stream actually reached are ticked; the final one needs a passing verdict.
+    const doneStep = finished ? (last ? turn.verdict?.action === "allow" : i <= reached) : i < reached;
+    const state = doneStep ? "done" : !finished && i === reached ? "active" : "pending";
     return { label: state === "done" ? did : doing, state };
   });
   return (
@@ -125,7 +129,6 @@ export function Chat() {
     const q = raw.trim();
     if (!q || busy) return;
     setBusy(true);
-    setQuestion("");
     setTurns((all) => [...all, { question: q, text: "", step: null, verdict: null, done: null, error: null }]);
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -151,7 +154,10 @@ export function Chat() {
 
   const send = (e: FormEvent) => {
     e.preventDefault();
-    void submit(question);
+    const q = question;
+    if (!q.trim() || busy) return;
+    setQuestion("");
+    void submit(q);
   };
 
   return (
