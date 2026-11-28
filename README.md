@@ -263,7 +263,7 @@ Prompt caching is used only on the structured-analysis context, which matters fo
 
 ### Langfuse tracing
 
-Tracing is optional. Put `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` in the `jobmatch/dev` secret and run `make env`; both must be present. `LANGFUSE_HOST` defaults to Langfuse Cloud. Chat, analysis and suggestion runs are traced under the user id; graph nodes become spans and LLM generations carry their token counts. Every string is masked with the PII redactor before it is sent.
+Tracing is optional. Put `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` in the `jobmatch/dev` secret and run `make env`; both must be present. The server address defaults to Langfuse's EU cloud (`https://cloud.langfuse.com`); for a US project set `LANGFUSE_BASE_URL` (or the older name `LANGFUSE_HOST`) to `https://us.cloud.langfuse.com`, otherwise the keys are rejected with 401. Chat, analysis and suggestion runs are traced under the user id; graph nodes become spans and LLM generations carry their token counts. Every string is masked with the PII redactor before it is sent.
 
 ### Report
 
