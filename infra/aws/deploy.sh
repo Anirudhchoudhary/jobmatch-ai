@@ -518,8 +518,20 @@ ensure_distribution() {
     caller_ref=$(jq -r .DistributionConfig.CallerReference "$current")
     # UpdateDistribution needs the complete config, including fields CloudFront filled in on
     # create (e.g. Logging), so lay our settings over the current config instead of replacing it.
+    # Lists are replaced, not merged, by `*`, so merge each origin (by Id) and cache behaviour
+    # (by PathPattern) with its current counterpart too (e.g. SmoothStreaming, OriginShield).
     distribution_config "$caller_ref" |
-      jq --slurpfile current "$current" '$current[0].DistributionConfig * .' >"$config"
+      jq --slurpfile current "$current" '
+        $current[0].DistributionConfig as $cur
+        | . as $want
+        | ($cur * $want)
+        | .Origins.Items = [$want.Origins.Items[] as $o
+            | ((($cur.Origins.Items // [])[] | select(.Id == $o.Id)) // {}) * $o]
+        | if $want.CacheBehaviors then
+            .CacheBehaviors.Items = [($want.CacheBehaviors.Items // [])[] as $b
+              | ((($cur.CacheBehaviors.Items // [])[] | select(.PathPattern == $b.PathPattern))
+                 // {}) * $b]
+          else . end' >"$config"
     log "updating CloudFront distribution $existing"
     awse cloudfront update-distribution --id "$existing" --if-match "$etag" \
       --distribution-config "file://$config" >/dev/null

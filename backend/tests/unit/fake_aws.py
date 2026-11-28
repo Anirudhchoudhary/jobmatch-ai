@@ -376,6 +376,13 @@ def handle_cloudfront(world: dict[str, Any], cmd: str, f: dict[str, Any]) -> Any
         cfg.setdefault(
             "Logging", {"Enabled": False, "IncludeCookies": False, "Bucket": "", "Prefix": ""}
         )
+        for behavior in [
+            cfg["DefaultCacheBehavior"],
+            *cfg.get("CacheBehaviors", {}).get("Items", []),
+        ]:
+            behavior.setdefault("SmoothStreaming", False)
+        for origin in cfg["Origins"]["Items"]:
+            origin.setdefault("OriginShield", {"Enabled": False})
         dists[dist_id] = {"config": cfg, "status": "InProgress", "tags": payload["Tags"]}
         etag = new_etag(dists[dist_id])
         return {"Distribution": distribution_view(dist_id, dists[dist_id]), "ETag": etag}
@@ -400,6 +407,11 @@ def handle_cloudfront(world: dict[str, Any], cmd: str, f: dict[str, Any]) -> Any
     check_etag(dist, f, cmd)
     if cmd == "update-distribution":
         cfg = json.loads(f["--distribution-config"])
+        behaviors = [cfg["DefaultCacheBehavior"], *cfg.get("CacheBehaviors", {}).get("Items", [])]
+        if any("SmoothStreaming" not in b for b in behaviors):
+            raise AwsError("InvalidArgument", cmd, "The parameter SmoothStreaming flag is missing.")
+        if any("OriginShield" not in o for o in cfg["Origins"]["Items"]):
+            raise AwsError("InvalidArgument", cmd, "OriginShield is missing.")
         if "Logging" not in cfg:
             raise AwsError("IllegalUpdate", cmd, "Logging is missing for the resource")
         if cfg["CallerReference"] != dist["config"]["CallerReference"]:
