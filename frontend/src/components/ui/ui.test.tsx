@@ -88,10 +88,22 @@ describe("primary button contrast", () => {
     "#" + [1, 3, 5].map((i) => ((parseInt(a.slice(i, i + 2), 16) + parseInt(b.slice(i, i + 2), 16)) >> 1).toString(16).padStart(2, "0")).join("");
   const tokens = (name: string) => [...css.matchAll(new RegExp(`--${name}: (#[0-9a-f]{6})`, "g"))].map((m) => m[1]);
 
-  it.each([0, 1])("keeps text >= 4.5:1 across the gradient (theme %i)", (i) => {
+  // CSS brightness() scales the whole element (text and background) by the same factor.
+  const dim = (hex: string, k: number) =>
+    "#" + [1, 3, 5].map((i) => Math.min(255, Math.round(parseInt(hex.slice(i, i + 2), 16) * k)).toString(16).padStart(2, "0")).join("");
+  const brightness = (cls: string) => Number(/hover:brightness-(\d+)/.exec(cls)?.[1] ?? 100) / 100;
+  const activeBrightness = Number(/active:brightness-(\d+)/.exec(readFileSync(resolve(__dirname, "Button.tsx"), "utf8"))?.[1]) / 100;
+
+  it("uses the .9 hover and a milder active brightness", () => {
+    expect(brightness(readFileSync(resolve(__dirname, "Button.tsx"), "utf8"))).toBe(0.9);
+    expect(activeBrightness).toBeGreaterThanOrEqual(0.85);
+  });
+
+  it.each([0, 1])("keeps text >= 4.5:1 across the gradient at rest, hover and active (theme %i)", (i) => {
     const from = tokens("btn-from")[i];
     const to = tokens("btn-to")[i];
     const text = tokens("btn-text")[i];
-    for (const bg of [from, mix(from, to), to]) expect(ratio(text, bg)).toBeGreaterThanOrEqual(4.5);
+    for (const k of [1, 0.9, activeBrightness])
+      for (const bg of [from, mix(from, to), to]) expect(ratio(dim(text, k), dim(bg, k))).toBeGreaterThanOrEqual(4.5);
   });
 });

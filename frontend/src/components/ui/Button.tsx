@@ -5,7 +5,7 @@ type Variant = "primary" | "secondary" | "ghost" | "link";
 
 const variants: Record<Variant, string> = {
   primary:
-    "bg-gradient-to-br from-[var(--btn-from)] to-[var(--btn-to)] text-[var(--btn-text)] shadow-sm hover:brightness-90 active:brightness-75 px-4 py-2.5 font-medium",
+    "bg-gradient-to-br from-[var(--btn-from)] to-[var(--btn-to)] text-[var(--btn-text)] shadow-sm hover:brightness-90 active:brightness-85 px-4 py-2.5 font-medium",
   secondary:
     "border border-border bg-surface text-foreground shadow-sm hover:bg-surface-muted active:bg-border px-4 py-2.5 font-medium",
   ghost: "text-foreground hover:bg-surface-muted active:bg-border px-3 py-2 font-medium",

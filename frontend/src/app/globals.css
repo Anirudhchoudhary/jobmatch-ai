@@ -99,3 +99,19 @@ body {
     animation-duration: 2.4s;
   }
 }
+
+@keyframes jm-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.jm-cursor {
+  animation: jm-blink 1s steps(1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jm-cursor {
+    animation: none;
+  }
+}

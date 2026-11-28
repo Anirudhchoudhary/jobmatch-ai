@@ -45,9 +45,11 @@ const done = (over: Record<string, unknown> = {}) => ({
 
 describe("Chat", () => {
   const fetchMock = vi.fn();
+  const reduced = (on: boolean) => vi.stubGlobal("matchMedia", (q: string) => ({ matches: on && q.includes("reduce") }));
   beforeEach(() => {
     fetchMock.mockReset();
     vi.stubGlobal("fetch", fetchMock);
+    reduced(true);
   });
   afterEach(() => vi.unstubAllGlobals());
 
@@ -71,7 +73,7 @@ describe("Chat", () => {
     await ask(user);
     expect(fetchMock.mock.calls[0][0]).toBe("/api/stream/chat");
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ question: "What do I know?" });
-    const btn = await screen.findByRole("button", { name: /r1/ });
+    const btn = await screen.findByRole("button", { name: /Source 1/ });
     await user.click(btn);
     expect(screen.getByText("Built Python APIs at Acme")).toBeInTheDocument();
     expect(screen.getByText("What do I know?")).toBeInTheDocument();
@@ -180,5 +182,72 @@ describe("Chat", () => {
     const items = screen.getAllByRole("listitem", { name: /conversation turn/i });
     expect(items[0]).toHaveTextContent("Q1");
     expect(items[1]).toHaveTextContent("Q2");
+  });
+
+  it("shows the working line step by step and ends with the source count", async () => {
+    let ctrl!: ReadableStreamDefaultController<Uint8Array>;
+    fetchMock.mockResolvedValue(
+      new Response(new ReadableStream<Uint8Array>({ start: (c) => (ctrl = c) }), { status: 200 }),
+    );
+    const user = userEvent.setup();
+    render(<Chat />);
+    await ask(user);
+    await waitFor(() => expect(ctrl).toBeDefined());
+    const push = (name: string, data: unknown) => ctrl.enqueue(encoder.encode(ev(name, data)));
+    push("progress", { step: "checking_input" });
+    expect(await screen.findByText("Checking your question")).toBeInTheDocument();
+    push("progress", { step: "retrieving" });
+    expect(await screen.findByText("Checked your question")).toBeInTheDocument();
+    expect(screen.getByText("Searching your documents")).toBeInTheDocument();
+    push("progress", { step: "reranking" });
+    push("progress", { step: "generating" });
+    expect(await screen.findByText("Searched your documents")).toBeInTheDocument();
+    expect(screen.getByText("Verifying against sources")).toBeInTheDocument();
+    const two = [
+      { label: "r1", chunk_id: "c1", doc_type: "resume", section: "Summary", text: "a" },
+      { label: "j1", chunk_id: "c2", doc_type: "jd", section: "Requirements", text: "b" },
+    ];
+    push("verdict", allowVerdict);
+    push("done", done({ answer: "Kafka [r1] and Go [j1] and again [r1].", citations: two }));
+    ctrl.close();
+    expect(await screen.findByText("Verified against sources")).toBeInTheDocument();
+    expect(screen.getByText(/2 sources cited/)).toBeInTheDocument();
+  });
+
+  it("keeps revealed text, stops the cursor and shows the error when the stream breaks", async () => {
+    reduced(true);
+    fetchMock.mockResolvedValue(sse(ev("token", { text: "partial answer" })));
+    const user = userEvent.setup();
+    const { container } = render(<Chat />);
+    await ask(user);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/connection dropped/i);
+    expect(screen.getByText("partial answer")).toBeInTheDocument();
+    expect(container.querySelector("[data-cursor]")).toBeNull();
+  });
+
+  it("types the answer out gradually and shows a cursor", async () => {
+    reduced(false);
+    let ctrl!: ReadableStreamDefaultController<Uint8Array>;
+    fetchMock.mockResolvedValue(
+      new Response(new ReadableStream<Uint8Array>({ start: (c) => (ctrl = c) }), { status: 200 }),
+    );
+    const user = userEvent.setup();
+    const { container } = render(<Chat />);
+    await ask(user);
+    await waitFor(() => expect(ctrl).toBeDefined());
+    ctrl.enqueue(encoder.encode(ev("token", { text: "x".repeat(300) })));
+    await waitFor(() => expect(container.querySelector("[data-cursor]")).not.toBeNull());
+    const partial = container.querySelector("li p.whitespace-pre-wrap")!.textContent!.length;
+    expect(partial).toBeLessThan(300);
+    await waitFor(() => expect(container.querySelector("li p.whitespace-pre-wrap")!.textContent).toHaveLength(300));
+  });
+
+  it("copies the answer without label codes", async () => {
+    fetchMock.mockResolvedValue(sse(ev("verdict", allowVerdict), ev("done", done({ answer: "A [r1][r1] B." }))));
+    const user = userEvent.setup();
+    const { container } = render(<Chat />);
+    await ask(user);
+    await screen.findAllByRole("button", { name: /Source 1/ });
+    expect(container.querySelector("li p.whitespace-pre-wrap")!.textContent).not.toMatch(/r1/);
   });
 });

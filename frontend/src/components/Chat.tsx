@@ -4,22 +4,31 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { StatusLine, type StatusItem } from "@/components/ui/StatusLine";
 import { Input } from "@/components/ui/Input";
 import { AnswerText } from "@/components/AnswerText";
 import { GuardrailsPanel } from "@/components/GuardrailsPanel";
 import { GENERIC_ERROR_MESSAGE } from "@/lib/api";
+import { numberCitations } from "@/lib/citations";
 import { streamSse } from "@/lib/sse";
+import { useTypewriter } from "@/lib/typewriter";
 import type { ChatDone, Verdict } from "@/lib/types";
 
 const MAX_QUESTION = 2000; // ChatRequest.question max_length
 
-const STEP_LABELS: Record<string, string> = {
-  checking_input: "Checking your question",
-  cache_hit: "Found a saved answer",
-  retrieving: "Searching your documents",
-  reranking: "Ranking the best passages",
-  generating: "Writing the answer",
-  checking_answer: "Checking the answer against your documents",
+// Working-line steps: [label while pending/active, label once done], and the progress events that reach each.
+const WORK_STEPS = [
+  ["Checking your question", "Checked your question"],
+  ["Searching your documents", "Searched your documents"],
+  ["Verifying against sources", "Verified against sources"],
+] as const;
+const STEP_INDEX: Record<string, number> = {
+  checking_input: 0,
+  retrieving: 1,
+  reranking: 1,
+  generating: 2,
+  cache_hit: 2,
+  checking_answer: 2,
 };
 
 interface Turn {
@@ -45,11 +54,30 @@ function Badge({ children, tone }: { children: string; tone: "danger" | "muted" 
   );
 }
 
+function WorkingLine({ turn, sources }: { turn: Turn; sources: number }) {
+  const finished = turn.done !== null;
+  const reached = turn.step === null ? -1 : (STEP_INDEX[turn.step] ?? -1);
+  if (turn.error || (!finished && reached < 0)) return null;
+  const items: StatusItem[] = WORK_STEPS.map(([doing, did], i) => {
+    const state = finished || i < reached ? "done" : i === reached ? "active" : "pending";
+    return { label: state === "done" ? did : doing, state };
+  });
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 text-muted">
+      <StatusLine items={items} />
+      {finished && sources > 0 ? <span className="text-sm">· {sources} {sources === 1 ? "source" : "sources"} cited</span> : null}
+    </div>
+  );
+}
+
 function TurnView({ turn }: { turn: Turn }) {
   const { done, verdict } = turn;
   const blocked = done?.blocked === true;
   const refused = done?.refused === true && !blocked;
   const flagged = verdict?.action === "flag";
+  const { shown, typing } = useTypewriter(done ? done.answer : turn.text, { done: done !== null || turn.error !== null });
+  const citations = done ? done.citations : [];
+  const sources = done ? numberCitations(done.answer, citations).sources.length : 0;
   return (
     <li aria-label="Conversation turn" className="flex flex-col gap-2">
       <p className="self-end rounded-lg bg-surface-muted px-3 py-2 text-sm font-medium">{turn.question}</p>
@@ -61,8 +89,8 @@ function TurnView({ turn }: { turn: Turn }) {
         {blocked ? <Badge tone="danger">Blocked</Badge> : null}
         {refused ? <Badge tone="muted">Not answered</Badge> : null}
         {done?.cached ? <Badge tone="muted">Served from cache</Badge> : null}
-        {!done && turn.step && !turn.text ? <p className="text-muted">{STEP_LABELS[turn.step] ?? "Working"}…</p> : null}
-        <AnswerText text={done ? done.answer : turn.text} citations={done ? done.citations : []} />
+        {blocked || done?.cached ? null : <WorkingLine turn={turn} sources={sources} />}
+        <AnswerText text={shown} citations={citations} typing={typing} />
         {flagged && verdict ? (
           <Alert>
             <p className="font-medium">Parts of this answer could not be verified against your documents.</p>
