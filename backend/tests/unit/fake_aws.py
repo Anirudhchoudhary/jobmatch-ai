@@ -372,6 +372,10 @@ def handle_cloudfront(world: dict[str, Any], cmd: str, f: dict[str, Any]) -> Any
             if set(d["config"]["Aliases"].get("Items", [])) & set(cfg["Aliases"]["Items"]):
                 raise AwsError("CNAMEAlreadyExists", cmd, "alias in use")
         dist_id = "E" + uuid.uuid4().hex[:13].upper()
+        # Like CloudFront, fill in the defaults it adds on create; an update must send them back.
+        cfg.setdefault(
+            "Logging", {"Enabled": False, "IncludeCookies": False, "Bucket": "", "Prefix": ""}
+        )
         dists[dist_id] = {"config": cfg, "status": "InProgress", "tags": payload["Tags"]}
         etag = new_etag(dists[dist_id])
         return {"Distribution": distribution_view(dist_id, dists[dist_id]), "ETag": etag}
@@ -396,6 +400,8 @@ def handle_cloudfront(world: dict[str, Any], cmd: str, f: dict[str, Any]) -> Any
     check_etag(dist, f, cmd)
     if cmd == "update-distribution":
         cfg = json.loads(f["--distribution-config"])
+        if "Logging" not in cfg:
+            raise AwsError("IllegalUpdate", cmd, "Logging is missing for the resource")
         if cfg["CallerReference"] != dist["config"]["CallerReference"]:
             raise AwsError("IllegalUpdate", cmd, "CallerReference cannot change")
         if cfg["Enabled"]:
