@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { Badge } from "./Badge";
@@ -66,5 +68,30 @@ describe("Logo", () => {
     const { container } = render(<Logo />);
     expect(container.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
     expect(screen.getByText("JobMatch AI")).toBeInTheDocument();
+  });
+});
+
+describe("primary button contrast", () => {
+  const css = readFileSync(resolve(__dirname, "../../app/globals.css"), "utf8");
+  const luminance = (hex: string) => {
+    const [r, g, b] = [1, 3, 5].map((i) => {
+      const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+      return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const ratio = (a: string, b: string) => {
+    const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+  const mix = (a: string, b: string) =>
+    "#" + [1, 3, 5].map((i) => ((parseInt(a.slice(i, i + 2), 16) + parseInt(b.slice(i, i + 2), 16)) >> 1).toString(16).padStart(2, "0")).join("");
+  const tokens = (name: string) => [...css.matchAll(new RegExp(`--${name}: (#[0-9a-f]{6})`, "g"))].map((m) => m[1]);
+
+  it.each([0, 1])("keeps text >= 4.5:1 across the gradient (theme %i)", (i) => {
+    const from = tokens("btn-from")[i];
+    const to = tokens("btn-to")[i];
+    const text = tokens("btn-text")[i];
+    for (const bg of [from, mix(from, to), to]) expect(ratio(text, bg)).toBeGreaterThanOrEqual(4.5);
   });
 });

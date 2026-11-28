@@ -20,6 +20,10 @@
   --danger: #b91c1c;
   --danger-soft: #fef2f2;
   --focus: #4f46e5;
+  /* Primary button gradient; text contrast (white): 6.29 start, 6.19 mid, 5.36 end. */
+  --btn-from: #4f46e5;
+  --btn-to: #0e7490;
+  --btn-text: #ffffff;
   --radius-card: 14px;
   --shadow-card: 0 1px 2px rgb(17 24 39 / 0.04), 0 1px 3px rgb(17 24 39 / 0.06);
 }
@@ -44,6 +48,10 @@
     --danger: #fca5a5;
     --danger-soft: #3b1219;
     --focus: #a5b4fc;
+    /* Dark text on the lighter gradient: 6.28 start, 7.82 mid, 10.36 end. */
+    --btn-from: #818cf8;
+    --btn-to: #22d3ee;
+    --btn-text: #0b1220;
     --shadow-card: 0 1px 2px rgb(0 0 0 / 0.4);
   }
 }
@@ -63,8 +71,6 @@
   --color-success-soft: var(--success-soft);
   --color-warning: var(--warning);
   --color-warning-soft: var(--warning-soft);
-  --radius-card: var(--radius-card);
-  --shadow-card: var(--shadow-card);
   --color-brand-contrast: var(--brand-contrast);
   --color-danger: var(--danger);
   --color-danger-soft: var(--danger-soft);
