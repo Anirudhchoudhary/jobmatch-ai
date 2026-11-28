@@ -1,7 +1,14 @@
 "use client";
 
 import { Check, FileText, Loader2, Sparkles, UploadCloud } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type DragEvent,
+} from "react";
 import { Alert } from "@/components/ui/Alert";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -20,11 +27,17 @@ const CONFIRM_MS = 1000;
 type DocType = "resume" | "jd";
 type StoredDoc = DocumentList["documents"][number];
 
-const messageOf = (e: unknown) => (e instanceof Error && e.message ? e.message : GENERIC_ERROR_MESSAGE);
-const jdQualifies = (text: string) => text.trim().length >= JD_MIN && text.trim().length <= JD_MAX;
+const messageOf = (e: unknown) =>
+  e instanceof Error && e.message ? e.message : GENERIC_ERROR_MESSAGE;
+const jdQualifies = (text: string) =>
+  text.trim().length >= JD_MIN && text.trim().length <= JD_MAX;
 
 /** `onReady(changed)`: both documents are present; `changed` is false when reporting the stored pair on mount. */
-export function Documents({ onReady }: { onReady: (changed: boolean) => void }) {
+export function Documents({
+  onReady,
+}: {
+  onReady: (changed: boolean) => void;
+}) {
   const [docs, setDocs] = useState<StoredDoc[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [active, setActive] = useState<DocType[]>([]);
@@ -38,21 +51,34 @@ export function Documents({ onReady }: { onReady: (changed: boolean) => void }) 
   const [confirming, setConfirming] = useState(false);
   const notified = useRef(false);
   const inFlight = useRef(false);
-  const pasted = useRef(false);
-  const confirmTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const mounted = useRef(true);
+  const lastJd = useRef<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const confirmTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
   const onReadyRef = useRef(onReady);
   useEffect(() => {
     onReadyRef.current = onReady;
   });
-  useEffect(() => () => clearTimeout(confirmTimer.current), []);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      clearTimeout(confirmTimer.current);
+    };
+  }, []);
 
   const busy = active.length > 0;
 
   const refresh = useCallback(async (changed = false) => {
     try {
       const { documents } = await apiGet<DocumentList>("/api/documents");
+      if (!mounted.current) return;
       setDocs(documents);
-      const both = ["resume", "jd"].every((t) => documents.some((d) => d.doc_type === t));
+      const both = ["resume", "jd"].every((t) =>
+        documents.some((d) => d.doc_type === t),
+      );
       // Fire once on first load, then again whenever a replacement succeeds.
       if (both && (changed || !notified.current)) {
         if (changed && !notified.current) {
@@ -60,6 +86,7 @@ export function Documents({ onReady }: { onReady: (changed: boolean) => void }) 
           setConfirming(true);
           clearTimeout(confirmTimer.current);
           confirmTimer.current = setTimeout(() => {
+            if (!mounted.current) return;
             notified.current = true;
             setConfirming(false);
             onReadyRef.current(true);
@@ -70,9 +97,9 @@ export function Documents({ onReady }: { onReady: (changed: boolean) => void }) 
         }
       }
     } catch (e) {
-      setError(messageOf(e));
+      if (mounted.current) setError(messageOf(e));
     } finally {
-      setLoaded(true);
+      if (mounted.current) setLoaded(true);
     }
   }, []);
 
@@ -82,14 +109,21 @@ export function Documents({ onReady }: { onReady: (changed: boolean) => void }) 
   }, [refresh]);
 
   /** Runs one ingest; returns whether it succeeded. Only one runs at a time. */
-  async function run(types: DocType[], task: () => Promise<void>): Promise<boolean> {
-    if (inFlight.current) return false;
+  async function run(
+    types: DocType[],
+    task: () => Promise<void>,
+  ): Promise<boolean> {
+    if (inFlight.current) {
+      setNotice("Please wait for the current document to finish.");
+      return false;
+    }
     inFlight.current = true;
     clearTimeout(confirmTimer.current);
     setConfirming(false);
     setActive(types);
     setRanTypes(types);
     setError(null);
+    setNotice(null);
     setHeld(0);
     setSteps({});
     try {
@@ -98,11 +132,13 @@ export function Documents({ onReady }: { onReady: (changed: boolean) => void }) 
       await refresh(true);
       return true;
     } catch (e) {
-      setError(messageOf(e));
+      if (mounted.current) setError(messageOf(e));
+      // A failed run may have cancelled the confirmation of a pair that is already stored.
+      if (!notified.current) await refresh(true);
       return false;
     } finally {
       inFlight.current = false;
-      setActive([]);
+      if (mounted.current) setActive([]);
     }
   }
 
@@ -116,7 +152,10 @@ export function Documents({ onReady }: { onReady: (changed: boolean) => void }) 
           // A new document's pipeline starts over at validating (keeping the finished upload tick).
           setSteps((prev) =>
             p.step === "validating" && p.status === "started"
-              ? { ...(prev.uploading ? { uploading: prev.uploading } : {}), [p.step]: p.status }
+              ? {
+                  ...(prev.uploading ? { uploading: prev.uploading } : {}),
+                  [p.step]: p.status,
+                }
               : { ...prev, [p.step]: p.status },
           );
         } else if (name === "done") {
@@ -129,11 +168,18 @@ export function Documents({ onReady }: { onReady: (changed: boolean) => void }) 
     );
   }
 
-  const trySample = () => void run(["resume", "jd"], () => stream("/api/samples", {}, 2));
+  const trySample = () =>
+    void run(["resume", "jd"], () => stream("/api/samples", {}, 2));
 
   const submitJd = (text: string) => {
-    void run(["jd"], () => stream("/api/stream/documents", { doc_type: "jd", text: text.trim() })).then((ok) => {
-      if (ok) setJd("");
+    const body = text.trim();
+    if (body === lastJd.current) return; // already added; a failed attempt may still be retried
+    void run(["jd"], () =>
+      stream("/api/stream/documents", { doc_type: "jd", text: body }),
+    ).then((ok) => {
+      if (!ok) return;
+      lastJd.current = body;
+      if (mounted.current) setJd("");
     });
   };
 
@@ -142,13 +188,18 @@ export function Documents({ onReady }: { onReady: (changed: boolean) => void }) 
       setSteps({ uploading: "started" });
       const key = await uploadResume(file);
       setSteps({ uploading: "done" });
-      await stream("/api/stream/documents", { doc_type: "resume", upload_key: key, filename: file.name });
+      await stream("/api/stream/documents", {
+        doc_type: "resume",
+        upload_key: key,
+        filename: file.name,
+      });
     });
 
-  function onJdChange(value: string) {
+  function onJdChange(e: ChangeEvent<HTMLTextAreaElement>) {
+    const value = e.target.value;
     setJd(value);
-    const fromPaste = pasted.current;
-    pasted.current = false;
+    const fromPaste =
+      (e.nativeEvent as InputEvent).inputType === "insertFromPaste";
     // Only a paste that leaves a qualifying text starts indexing; typed text waits for the button.
     if (fromPaste && jdQualifies(value)) submitJd(value);
   }
@@ -161,52 +212,76 @@ export function Documents({ onReady }: { onReady: (changed: boolean) => void }) 
   }
 
   const docOf = (t: DocType) => docs.find((d) => d.doc_type === t);
-  const startReplace = (t: DocType) => setReplacing((r) => (r.includes(t) ? r : [...r, t]));
-  const cancelReplace = (t: DocType) => setReplacing((r) => r.filter((x) => x !== t));
+  const startReplace = (t: DocType) =>
+    setReplacing((r) => (r.includes(t) ? r : [...r, t]));
+  const cancelReplace = (t: DocType) =>
+    setReplacing((r) => r.filter((x) => x !== t));
   const showSampleBanner = loaded && !docOf("resume") && !busy;
 
   function statusCard(t: DocType) {
     const stored = docOf(t);
     const working = active.includes(t);
-    const name = t === "resume" ? (stored?.filename ?? "Resume") : "Job description";
+    const name =
+      t === "resume" ? (stored?.filename ?? "Resume") : "Job description";
     const showSteps = ranTypes[0] === t && Object.keys(steps).length > 0;
     return (
-      <Card key={t} data-testid={`doc-card-${t}`} className="flex flex-col gap-3 !p-4">
+      <Card
+        key={t}
+        data-testid={`doc-card-${t}`}
+        className="flex flex-col gap-3 !p-4"
+      >
         <div className="flex items-center gap-3">
           <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-brand-soft text-brand">
-            {working ? <Loader2 aria-hidden="true" className="jm-spin size-5" /> : <FileText aria-hidden="true" className="size-5" />}
+            {working ? (
+              <Loader2 aria-hidden="true" className="jm-spin size-5" />
+            ) : (
+              <FileText aria-hidden="true" className="size-5" />
+            )}
           </span>
           <div className="min-w-0 flex-1">
             <p className="truncate font-medium">{name}</p>
             <p className="text-sm text-muted">
               {t === "resume" ? "Resume" : "Added from pasted text"}
-              {stored && !working ? ` · added ${new Date(stored.created_at).toLocaleString()}` : ""}
+              {stored && !working
+                ? ` · added ${new Date(stored.created_at).toLocaleString()}`
+                : ""}
             </p>
           </div>
-          {working ? (
-            <Badge tone="brand">Working</Badge>
-          ) : (
-            <>
-              <Badge tone="success">
-                <Check aria-hidden="true" className="mr-1 size-3" />
-                Ready
-              </Badge>
-              <Button variant="ghost" onClick={() => startReplace(t)} aria-label={`Replace ${t === "resume" ? "resume" : "job description"}`}>
-                Replace
-              </Button>
-            </>
-          )}
+          <div aria-live="polite" className="flex items-center gap-2">
+            {working ? (
+              <Badge tone="brand">Working</Badge>
+            ) : (
+              <>
+                <Badge tone="success">
+                  <Check aria-hidden="true" className="mr-1 size-3" />
+                  Ready
+                </Badge>
+                <Button
+                  variant="ghost"
+                  onClick={() => startReplace(t)}
+                  aria-label={`Replace ${t === "resume" ? "resume" : "job description"}`}
+                >
+                  Replace
+                </Button>
+              </>
+            )}
+          </div>
         </div>
-        {showSteps ? <Progress steps={steps} /> : null}
+        <div aria-live="polite" className="flex flex-col gap-3">
+          {showSteps ? <Progress steps={steps} /> : null}
+        </div>
         {working && !showSteps && active.length > 1 ? (
-          <p className="text-sm text-muted">Added together with the sample resume.</p>
+          <p className="text-sm text-muted">
+            Added together with the sample resume.
+          </p>
         ) : null}
       </Card>
     );
   }
 
   const resumeSlot =
-    active.includes("resume") || (docOf("resume") && !replacing.includes("resume")) ? (
+    active.includes("resume") ||
+    (docOf("resume") && !replacing.includes("resume")) ? (
       statusCard("resume")
     ) : (
       <div className="flex flex-col gap-2">
@@ -220,12 +295,16 @@ export function Documents({ onReady }: { onReady: (changed: boolean) => void }) 
           onDragLeave={() => setDragging(false)}
           onDrop={onDrop}
           className={`flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-[var(--radius-card)] border-2 border-dashed px-4 py-8 text-center transition focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-focus ${
-            dragging ? "border-brand bg-brand-soft" : "border-border bg-surface hover:bg-surface-muted"
+            dragging
+              ? "border-brand bg-brand-soft"
+              : "border-border bg-surface hover:bg-surface-muted"
           }`}
         >
           <UploadCloud aria-hidden="true" className="size-6 text-brand" />
           <span className="font-medium">Drop your resume PDF here</span>
-          <span className="text-sm text-muted">or click to choose a file · PDF up to 5 MB</span>
+          <span className="text-sm text-muted">
+            or click to choose a file · PDF up to 5 MB
+          </span>
           <input
             id="resume-file"
             type="file"
@@ -264,16 +343,19 @@ export function Documents({ onReady }: { onReady: (changed: boolean) => void }) 
           maxLength={JD_MAX}
           disabled={busy}
           placeholder="Paste the job description here…"
-          onPaste={() => (pasted.current = true)}
-          onChange={(e) => onJdChange(e.target.value)}
+          onChange={onJdChange}
           aria-describedby="jd-hint"
           className="w-full rounded-lg border border-border bg-surface px-3 py-2.5 text-base placeholder:text-muted focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus"
         />
         <p id="jd-hint" className="text-sm text-muted">
-          Paste {JD_MIN} to {JD_MAX.toLocaleString("en-US")} characters and it is added at once, or type it and press the button.
+          Paste {JD_MIN} to {JD_MAX.toLocaleString("en-US")} characters and it
+          is added at once, or type it and press the button.
         </p>
         <div className="flex gap-2">
-          <Button onClick={() => submitJd(jd)} disabled={busy || !jdQualifies(jd)}>
+          <Button
+            onClick={() => submitJd(jd)}
+            disabled={busy || !jdQualifies(jd)}
+          >
             Add job description
           </Button>
           {docOf("jd") ? (
@@ -291,7 +373,8 @@ export function Documents({ onReady }: { onReady: (changed: boolean) => void }) 
         <div className="flex flex-wrap items-center gap-3 rounded-[var(--radius-card)] border border-brand/30 bg-brand-soft px-4 py-3">
           <Sparkles aria-hidden="true" className="size-5 text-brand" />
           <p className="flex-1 text-sm">
-            <b>No resume handy?</b> Use a sample resume and job description to see how it works.
+            <b>No resume handy?</b> Use a sample resume and job description to
+            see how it works.
           </p>
           <Button onClick={trySample}>Try the sample</Button>
         </div>
@@ -303,16 +386,21 @@ export function Documents({ onReady }: { onReady: (changed: boolean) => void }) 
       </div>
 
       {confirming ? (
-        <p role="status" className="flex items-center gap-2 text-sm font-medium text-success">
+        <p
+          role="status"
+          className="flex items-center gap-2 text-sm font-medium text-success"
+        >
           <Check aria-hidden="true" className="size-4" />
           Both documents ready
         </p>
       ) : null}
       {held > 0 ? (
         <Alert tone="info">
-          Some content was held back because it looked unsafe. It will not be used in your analysis.
+          Some content was held back because it looked unsafe. It will not be
+          used in your analysis.
         </Alert>
       ) : null}
+      {notice ? <Alert tone="info">{notice}</Alert> : null}
       {error ? <Alert>{error}</Alert> : null}
     </div>
   );

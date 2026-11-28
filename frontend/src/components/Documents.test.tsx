@@ -252,4 +252,103 @@ describe("Documents", () => {
       vi.useRealTimers();
     }
   });
+
+  it("does not ingest after a paste is followed by typing that stays under 50", async () => {
+    const user = userEvent.setup();
+    render(<Documents onReady={vi.fn()} />);
+    const box = await screen.findByLabelText(/job description/i);
+    await user.click(box);
+    await user.paste("a".repeat(30));
+    await user.type(box, "b".repeat(25));
+    expect(jdPosts()).toBe(0);
+    expect(screen.getByRole("button", { name: /add job description/i })).toBeEnabled();
+  });
+
+  it("paste, edit, then paste again ingests once when the final text qualifies", async () => {
+    post = () => sse(prog("validating", "started"), ev("done", ready("jd")));
+    const user = userEvent.setup();
+    render(<Documents onReady={vi.fn()} />);
+    const box = await screen.findByLabelText(/job description/i);
+    await user.click(box);
+    await user.paste("a".repeat(20));
+    await user.type(box, "b");
+    await user.paste("c".repeat(40));
+    await waitFor(() => expect(jdPosts()).toBe(1));
+    const call = fetchMock.mock.calls.find((c) => c[0] === "/api/stream/documents")!;
+    expect(JSON.parse(call[1].body).text).toBe("a".repeat(20) + "b" + "c".repeat(40));
+  });
+
+  it("never posts the same successful text twice, but retries a failed one on click", async () => {
+    let n = 0;
+    post = () => (++n === 1 ? json(500, {}) : sse(prog("validating", "started"), ev("done", ready("jd"))));
+    const user = userEvent.setup();
+    render(<Documents onReady={vi.fn()} />);
+    const box = await screen.findByLabelText(/job description/i);
+    await user.click(box);
+    await user.paste("s".repeat(60));
+    await waitFor(() => expect(jdPosts()).toBe(1));
+    await screen.findByRole("alert");
+    await user.click(screen.getByRole("button", { name: /add job description/i }));
+    await waitFor(() => expect(jdPosts()).toBe(2));
+    await waitFor(() => expect(screen.getByLabelText(/job description/i)).toHaveValue(""));
+    await user.click(screen.getByLabelText(/job description/i));
+    await user.paste("s".repeat(60));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(jdPosts()).toBe(2);
+  });
+
+  it("ignores a PDF dropped while another ingest runs, with a notice and no second request", async () => {
+    post = (path) => (path === "/api/stream/documents" ? new Promise<Response>(() => {}) : json(500, {}));
+    const user = userEvent.setup();
+    render(<Documents onReady={vi.fn()} />);
+    await user.click(await screen.findByLabelText(/job description/i));
+    await user.paste("w".repeat(60));
+    await waitFor(() => expect(jdPosts()).toBe(1));
+    const zone = screen.getByText(/drop your resume/i).closest("label")!;
+    fireEvent.drop(zone, { dataTransfer: { files: [new File(["%PDF"], "late.pdf", { type: "application/pdf" })] } });
+    expect(await screen.findByText(/wait for the current document/i)).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some((c) => c[0] === "/api/uploads")).toBe(false);
+  });
+
+  it("a failed ingest during the confirm window still reports the stored pair afterwards", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let n = 0;
+      post = () => (++n === 1 ? sse(ev("done", ready("resume")), ev("done", ready("jd"))) : json(500, {}));
+      const onReady = vi.fn();
+      render(<Documents onReady={onReady} />);
+      const banner = await screen.findByRole("button", { name: /try the sample/i });
+      documents = [doc("resume", "sample-resume.pdf"), doc("jd", null)];
+      fireEvent.click(banner);
+      await screen.findByText(/both documents ready/i);
+      fireEvent.click(screen.getByRole("button", { name: /replace job description/i }));
+      fireEvent.change(await screen.findByLabelText(/job description/i), { target: { value: "f".repeat(60) } });
+      fireEvent.click(screen.getByRole("button", { name: /add job description/i }));
+      await screen.findByRole("alert");
+      expect(onReady).not.toHaveBeenCalled();
+      await act(() => vi.advanceTimersByTimeAsync(1100));
+      expect(onReady).toHaveBeenCalledTimes(1);
+      expect(onReady).toHaveBeenCalledWith(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not report ready after unmount during the confirm window", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      post = () => sse(ev("done", ready("resume")), ev("done", ready("jd")));
+      const onReady = vi.fn();
+      const { unmount } = render(<Documents onReady={onReady} />);
+      const banner = await screen.findByRole("button", { name: /try the sample/i });
+      documents = [doc("resume", "sample-resume.pdf"), doc("jd", null)];
+      fireEvent.click(banner);
+      await screen.findByText(/both documents ready/i);
+      unmount();
+      await act(() => vi.advanceTimersByTimeAsync(3000));
+      expect(onReady).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

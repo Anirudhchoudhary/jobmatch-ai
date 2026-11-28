@@ -118,6 +118,8 @@ describe("Workspace", { timeout: 15000 }, () => {
     const user = userEvent.setup();
     render(<Workspace />);
     await stepTitle(/step 1/i);
+    // Wait for the stored resume to load so the later fetch cannot race the typing.
+    await screen.findByText(/cv\.pdf/);
     documents = [doc("resume"), doc("jd")];
     await replaceJd(user);
     expect(await stepTitle(/step 2/i)).toBeInTheDocument();
@@ -244,6 +246,8 @@ describe("Workspace", { timeout: 15000 }, () => {
       </StrictMode>,
     );
     await stepTitle(/step 1/i);
+    // Wait for the stored resume to load so the later fetch cannot race the typing.
+    await screen.findByText(/cv\.pdf/);
     documents = [doc("resume"), doc("jd")];
     await replaceJd(user);
     expect(await stepTitle(/step 2/i)).toBeInTheDocument();
