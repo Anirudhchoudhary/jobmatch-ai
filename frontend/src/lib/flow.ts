@@ -53,6 +53,14 @@ const unlockedOf = (s: FlowState): Record<StepId, boolean> => ({
   ask: s.docsReady && s.hasAnalysis,
 });
 
+/** Keeps the flow on an open step: if the current step became locked, fall back to the furthest open one. */
+function settle(s: FlowState): FlowState {
+  const open = unlockedOf(s);
+  if (open[s.step]) return s;
+  const step = [...STEPS].reverse().find((id) => open[id]) ?? "documents";
+  return { ...s, step };
+}
+
 const exists = (path: string) =>
   apiGet<unknown>(path).then(
     () => true,
@@ -89,7 +97,8 @@ export function useFlow(): Flow {
   }, []);
 
   const goTo = useCallback((step: StepId) => {
-    setS((prev) => (unlockedOf(prev)[step] ? { ...prev, step, arrival: "user" } : prev));
+    // Re-selecting the current step is not a new arrival: it must not turn a restore into a paid auto-run.
+    setS((prev) => (step !== prev.step && unlockedOf(prev)[step] ? { ...prev, step, arrival: "user" } : prev));
   }, []);
 
   const onDocumentsReady = useCallback((changed: boolean) => {
@@ -97,7 +106,7 @@ export function useFlow(): Flow {
       // Documents reporting the pair that was already stored: nothing new happened.
       if (!changed) return prev.docsReady ? prev : { ...prev, docsReady: true };
       const firstCompletion = !prev.docsReady && prev.step === "documents";
-      return {
+      return settle({
         ...prev,
         docsReady: true,
         // A new or replaced document makes any earlier match and rewrites stale.
@@ -105,13 +114,15 @@ export function useFlow(): Flow {
         hasSuggestions: false,
         docsVersion: prev.docsVersion + 1,
         ...(firstCompletion ? { step: "match" as const, arrival: "user" as const } : {}),
-      };
+      });
     });
   }, []);
 
   const onAnalysis = useCallback((present: boolean) => {
     setS((prev) =>
-      prev.hasAnalysis === present ? prev : { ...prev, hasAnalysis: present, hasSuggestions: present && prev.hasSuggestions },
+      prev.hasAnalysis === present
+        ? prev
+        : settle({ ...prev, hasAnalysis: present, hasSuggestions: present && prev.hasSuggestions }),
     );
   }, []);
 

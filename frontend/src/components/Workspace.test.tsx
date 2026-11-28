@@ -1,4 +1,5 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { StrictMode } from "react";
+import { configure, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Workspace } from "./Workspace";
@@ -40,9 +41,13 @@ const analysis = {
   request_id: "r",
   skills: [],
 };
+// Generous async timeout: these flows type a job description and stream several responses,
+// which can exceed the 1 s default when the whole suite runs in parallel.
+configure({ asyncUtilTimeout: 4000 });
+
 const suggestions = { analysis_id: "a1", suggestions: [], rejected_count: 0, analyst: "fake", request_id: "r" };
 
-describe("Workspace", () => {
+describe("Workspace", { timeout: 15000 }, () => {
   const fetchMock = vi.fn();
   let documents: unknown[];
   let storedAnalysis: unknown;
@@ -175,5 +180,73 @@ describe("Workspace", () => {
     await user.click(stepButton(/match/i));
     await user.click(stepButton(/ask/i));
     expect(screen.getByLabelText(/ask a question/i)).toHaveValue("draft");
+  });
+  it.each([
+    ["Match", false, /step 2/i, "/api/stream/analyses"],
+    ["Improve", true, /step 3/i, "/api/stream/suggestions"],
+  ])("clicking the current step (%s) after a reload starts no paid run", async (name, withAnalysis, title, path) => {
+    documents = [doc("resume"), doc("jd")];
+    storedAnalysis = withAnalysis ? analysis : null;
+    const user = userEvent.setup();
+    render(<Workspace />);
+    await stepTitle(title);
+    await user.click(stepButton(new RegExp(name, "i")));
+    await user.click(stepButton(new RegExp(name, "i")));
+    expect(screen.getByRole("heading", { level: 1, name: title })).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(posts(path)).toBe(0);
+    expect(posts("/api/stream/analyses")).toBe(0);
+  });
+
+  it("shows an error on Step 1 when the documents request fails", async () => {
+    fetchMock.mockImplementation(() => Promise.resolve(json(500, {})));
+    render(<Workspace />);
+    expect(await stepTitle(/step 1/i)).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(stepButton(/match/i)).toBeDisabled();
+  });
+
+  it("does not auto-run when the stored analysis cannot be read", async () => {
+    documents = [doc("resume"), doc("jd")];
+    const base = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((path: string, init?: RequestInit) =>
+      path === "/api/analyses/latest" ? Promise.resolve(json(500, {})) : base(path, init),
+    );
+    render(<Workspace />);
+    expect(await stepTitle(/step 2/i)).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(posts("/api/stream/analyses")).toBe(0);
+  });
+
+  it("falls back to Match when the analysis restore saw is not readable by the step", async () => {
+    documents = [doc("resume"), doc("jd")];
+    storedAnalysis = analysis;
+    const base = fetchMock.getMockImplementation()!;
+    let reads = 0;
+    fetchMock.mockImplementation((path: string, init?: RequestInit) =>
+      path === "/api/analyses/latest" && ++reads > 1 ? Promise.resolve(json(500, {})) : base(path, init),
+    );
+    render(<Workspace />);
+    expect(await stepTitle(/step 2/i)).toBeInTheDocument();
+    expect(stepButton(/improve/i)).toBeDisabled();
+    expect(posts("/api/stream/analyses")).toBe(0);
+    expect(posts("/api/stream/suggestions")).toBe(0);
+  });
+
+  it("under StrictMode, the first documents-ready starts exactly one analysis", async () => {
+    documents = [doc("resume")];
+    const user = userEvent.setup();
+    render(
+      <StrictMode>
+        <Workspace />
+      </StrictMode>,
+    );
+    await stepTitle(/step 1/i);
+    documents = [doc("resume"), doc("jd")];
+    await replaceJd(user);
+    expect(await stepTitle(/step 2/i)).toBeInTheDocument();
+    expect(await screen.findByText("72")).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(posts("/api/stream/analyses")).toBe(1);
   });
 });

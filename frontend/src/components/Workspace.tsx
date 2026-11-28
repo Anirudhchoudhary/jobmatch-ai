@@ -118,8 +118,8 @@ export function Workspace() {
         </StepPanel>
       ) : null}
 
-      {/* Mounted once the documents are ready, and kept mounted so the conversation survives. */}
-      {unlocked.match ? (
+      {/* Kept mounted (hidden) while open so the conversation survives moving between steps. */}
+      {unlocked.ask ? (
         <StepPanel id="ask" active={step === "ask"}>
           <Chat />
         </StepPanel>

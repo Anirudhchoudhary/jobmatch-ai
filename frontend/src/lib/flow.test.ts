@@ -132,4 +132,29 @@ describe("useFlow", () => {
     act(() => result.current.onSuggestions(true));
     expect(result.current.done.improve).toBe(true);
   });
+  it("re-selecting the current step keeps arrival restore", async () => {
+    documents = [doc("resume"), doc("jd")];
+    const { result } = await restored();
+    act(() => result.current.goTo("match"));
+    expect(result.current.step).toBe("match");
+    expect(result.current.arrival).toBe("restore");
+  });
+
+  it("falls back to the furthest open step, keeping arrival, when the current step locks", async () => {
+    documents = [doc("resume"), doc("jd")];
+    analysis = true;
+    suggestions = true;
+    const { result } = await restored();
+    expect(result.current.step).toBe("ask");
+    act(() => result.current.onAnalysis(false));
+    expect(result.current.step).toBe("match");
+    expect(result.current.arrival).toBe("restore");
+  });
+
+  it("lands on documents when the documents request fails", async () => {
+    fetchMock.mockImplementation(() => Promise.resolve(json(500, {})));
+    const { result } = await restored();
+    expect(result.current.step).toBe("documents");
+    expect(result.current.unlocked.match).toBe(false);
+  });
 });

@@ -64,7 +64,7 @@ describe("Suggestions", () => {
     const onResult = vi.fn();
     render(<Suggestions onResult={onResult} />);
     expect(await screen.findByRole("button", { name: /^suggest rewrites$/i })).toBeInTheDocument();
-    expect(onResult).toHaveBeenLastCalledWith(false);
+    await waitFor(() => expect(onResult).toHaveBeenLastCalledWith(false));
     expect(posts()).toBe(0);
   });
 

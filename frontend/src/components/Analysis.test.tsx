@@ -89,7 +89,7 @@ describe("Analysis", () => {
     const onResult = vi.fn();
     render(<Analysis docsVersion={1} onResult={onResult} />);
     expect(await screen.findByRole("button", { name: /^run analysis$/i })).toBeInTheDocument();
-    expect(onResult).toHaveBeenLastCalledWith(null);
+    await waitFor(() => expect(onResult).toHaveBeenLastCalledWith(null));
     expect(posts()).toBe(0);
   });
 
