@@ -185,6 +185,26 @@ describe("Workspace", { timeout: 15000 }, () => {
     await user.click(stepButton(/ask/i));
     expect(screen.getByLabelText(/ask a question/i)).toHaveValue("draft");
   });
+  it("keeps the chat history when switching between steps", async () => {
+    documents = [doc("resume"), doc("jd")];
+    storedAnalysis = analysis;
+    const base = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((path: string, init?: unknown) =>
+      path === "/api/stream/chat"
+        ? Promise.resolve(sse(ev("done", { answer: "A fine answer.", citations: [], invalid_citations: [], refused: false, guardrails: [], guardrail_checks: [], blocked: false, cached: false })))
+        : base(path, init),
+    );
+    const user = userEvent.setup();
+    render(<Workspace />);
+    await stepTitle(/step 3/i);
+    await user.click(stepButton(/ask/i));
+    await user.click(await screen.findByRole("button", { name: "What's my biggest gap?" }));
+    expect(await screen.findByText("A fine answer.")).toBeInTheDocument();
+    await user.click(stepButton(/match/i));
+    await user.click(stepButton(/ask/i));
+    expect(screen.getByText("A fine answer.")).toBeVisible();
+    expect(posts("/api/stream/chat")).toBe(1);
+  });
   it.each([
     ["Match", false, /step 2/i, "/api/stream/analyses"],
     ["Improve", true, /step 3/i, "/api/stream/suggestions"],

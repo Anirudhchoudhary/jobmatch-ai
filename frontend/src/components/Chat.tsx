@@ -16,6 +16,8 @@ import type { ChatDone, Verdict } from "@/lib/types";
 
 const MAX_QUESTION = 2000; // ChatRequest.question max_length
 
+const STARTERS = ["What's my biggest gap?", "Do I have the required experience?", "Which skills should I highlight?"];
+
 // Working-line steps: [label while pending/active, label once done], and the progress events that reach each.
 const WORK_STEPS = [
   ["Checking your question", "Checked your question"],
@@ -81,7 +83,7 @@ function TurnView({ turn }: { turn: Turn }) {
     <li aria-label="Conversation turn" className="flex flex-col gap-2">
       <p className="self-end rounded-lg bg-surface-muted px-3 py-2 text-sm font-medium">{turn.question}</p>
       <div
-        className={`flex flex-col gap-2 rounded-lg border p-3 text-sm ${
+        className={`flex flex-col gap-2 rounded-xl border p-4 text-sm leading-relaxed ${
           blocked ? "border-danger/40 bg-danger-soft" : refused ? "border-dashed border-border bg-surface-muted" : "border-border"
         }`}
       >
@@ -119,9 +121,8 @@ export function Chat() {
   const patchLast = (patch: (t: Turn) => Partial<Turn>) =>
     setTurns((all) => all.map((t, i) => (i === all.length - 1 ? { ...t, ...patch(t) } : t)));
 
-  async function send(e: FormEvent) {
-    e.preventDefault();
-    const q = question.trim();
+  async function submit(raw: string) {
+    const q = raw.trim();
     if (!q || busy) return;
     setBusy(true);
     setQuestion("");
@@ -148,9 +149,13 @@ export function Chat() {
     }
   }
 
+  const send = (e: FormEvent) => {
+    e.preventDefault();
+    void submit(question);
+  };
+
   return (
-    <Card className="mt-6 flex flex-col gap-4">
-      <h2 className="text-lg font-semibold">Ask about your match</h2>
+    <Card className="flex flex-col gap-4">
       <p className="text-sm text-muted">
         Questions are answered only from your resume and the job description. Each answer shows its sources.
       </p>
@@ -161,7 +166,22 @@ export function Chat() {
           ))}
         </ol>
       ) : null}
-      <form onSubmit={(e) => void send(e)} className="flex flex-col gap-3">
+      {turns.length === 0 ? (
+        <div role="group" aria-label="Starter questions" className="flex flex-wrap gap-2">
+          {STARTERS.map((q) => (
+            <button
+              key={q}
+              type="button"
+              disabled={busy}
+              onClick={() => void submit(q)}
+              className="rounded-full border border-brand/30 bg-surface px-3 py-1.5 text-sm text-brand transition hover:bg-brand-soft focus-visible:outline-2 focus-visible:outline-focus disabled:opacity-60"
+            >
+              {q}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      <form onSubmit={send} className="flex flex-col gap-3">
         <Input
           label="Ask a question"
           value={question}

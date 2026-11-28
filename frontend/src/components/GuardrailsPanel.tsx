@@ -18,18 +18,18 @@ export function GuardrailsPanel({ checks, verdict }: { checks: GuardrailOutcome[
   const id = useId();
 
   return (
-    <div className="text-sm">
+    <div className="border-t border-border pt-2 text-sm">
       <button
         type="button"
         aria-expanded={open}
         aria-controls={id}
         onClick={() => setOpen(!open)}
-        className="text-brand underline underline-offset-2 hover:text-brand-hover focus-visible:outline-2 focus-visible:outline-focus"
+        className="rounded-md px-1 py-0.5 text-xs font-medium text-brand hover:bg-brand-soft focus-visible:outline-2 focus-visible:outline-focus"
       >
         {open ? "Hide guardrails" : "Show guardrails"}
       </button>
       {open ? (
-        <div id={id} className="mt-2 flex flex-col gap-2">
+        <div id={id} className="mt-2 flex flex-col gap-2 rounded-lg bg-surface-muted p-3">
           {verdict ? (
             verdict.action === "flag" ? (
               <div>
@@ -51,7 +51,7 @@ export function GuardrailsPanel({ checks, verdict }: { checks: GuardrailOutcome[
                 <li
                   key={`${c.guardrail}-${c.stage}-${i}`}
                   data-fired={fired ? "true" : undefined}
-                  className={`rounded-md border px-3 py-2 ${fired ? "border-danger/40 bg-danger-soft" : "border-border"}`}
+                  className={`rounded-md border px-3 py-2 ${fired ? "border-danger/40 bg-danger-soft" : "border-border bg-surface"}`}
                 >
                   <p>
                     <span className="font-medium">{c.guardrail}</span>

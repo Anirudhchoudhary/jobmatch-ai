@@ -39,7 +39,7 @@ export function AnswerText({
                 aria-expanded={open === part.n}
                 aria-label={`Source ${part.n}: ${sourceName(sources[part.n - 1].citation)}`}
                 onClick={() => toggle(part.n)}
-                className={`mx-px select-none rounded px-1.5 py-1 font-bold text-brand hover:underline ${FOCUS}`}
+                className={`mx-px select-none -my-1 rounded px-1.5 py-1 font-bold text-brand hover:underline ${FOCUS}`}
               >
                 {part.n}
               </button>

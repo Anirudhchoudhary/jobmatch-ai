@@ -250,4 +250,25 @@ describe("Chat", () => {
     await screen.findAllByRole("button", { name: /Source 1/ });
     expect(container.querySelector("li p.whitespace-pre-wrap")!.textContent).not.toMatch(/r1/);
   });
+
+  it("sends a starter question immediately when its chip is clicked", async () => {
+    fetchMock.mockResolvedValueOnce(sse(ev("done", done())));
+    const user = userEvent.setup();
+    render(<Chat />);
+    await user.click(screen.getByRole("button", { name: "What's my biggest gap?" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ question: "What's my biggest gap?" });
+    expect(await screen.findByText("What's my biggest gap?", { selector: "p" })).toBeInTheDocument();
+  });
+
+  it("offers all three starter questions and hides them once a conversation starts", async () => {
+    fetchMock.mockResolvedValueOnce(sse(ev("done", done())));
+    const user = userEvent.setup();
+    render(<Chat />);
+    for (const q of ["What's my biggest gap?", "Do I have the required experience?", "Which skills should I highlight?"])
+      expect(screen.getByRole("button", { name: q })).toBeEnabled();
+    await ask(user);
+    await screen.findByRole("listitem", { name: "Conversation turn" });
+    expect(screen.queryByRole("button", { name: "What's my biggest gap?" })).not.toBeInTheDocument();
+  });
 });
