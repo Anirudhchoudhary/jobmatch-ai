@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/Input";
 import { AnswerText } from "@/components/AnswerText";
 import { GuardrailsPanel } from "@/components/GuardrailsPanel";
 import { GENERIC_ERROR_MESSAGE } from "@/lib/api";
-import { numberCitations } from "@/lib/citations";
+import { numberCitations, stripCitationLabels } from "@/lib/citations";
 import { streamSse } from "@/lib/sse";
 import { useTypewriter } from "@/lib/typewriter";
 import type { ChatDone, Verdict } from "@/lib/types";
@@ -101,7 +101,7 @@ function TurnView({ turn }: { turn: Turn }) {
             <p className="font-medium">Parts of this answer could not be verified against your documents.</p>
             <ul className="mt-1 list-disc pl-5">
               {verdict.unsupported_claims.map((c, i) => (
-                <li key={i}>{c}</li>
+                <li key={i}>{stripCitationLabels(c)}</li>
               ))}
             </ul>
           </Alert>

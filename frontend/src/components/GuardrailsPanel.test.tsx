@@ -77,4 +77,12 @@ describe("GuardrailsPanel", () => {
     const id = screen.getByRole("button", { name: "Hide guardrails" }).getAttribute("aria-controls")!;
     expect(document.getElementById(id)).not.toBeNull();
   });
+
+  it("strips citation codes from unsupported claims", async () => {
+    const user = userEvent.setup();
+    const flag: Verdict = { grounded: false, action: "flag", unsupported_claims: ["Has Go [r2] experience"], mode: "enforce" };
+    render(<GuardrailsPanel checks={[check({})]} verdict={flag} />);
+    await user.click(screen.getByRole("button", { name: "Show guardrails" }));
+    expect(screen.getByText("Has Go experience")).toBeInTheDocument();
+  });
 });

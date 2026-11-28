@@ -51,7 +51,7 @@ test("sign in, sample, match, improve, ask, guardrails, reload, sign out", async
   // The Sources row appears when the answer cites anything (labels are never shown raw).
   await expect(turn.getByText("Sources", { exact: true })).toBeVisible();
   await expect(turn.getByRole("button", { name: /^1 Resume · / })).toBeVisible();
-  await expect(turn.locator("p.whitespace-pre-wrap")).not.toContainText("[r1]");
+  await expect(turn).not.toContainText(/\[[rj]\d+\]/);
   const guardrails = page.getByRole("button", { name: "Show guardrails" });
   await expect(guardrails).toBeVisible();
   await guardrails.click();

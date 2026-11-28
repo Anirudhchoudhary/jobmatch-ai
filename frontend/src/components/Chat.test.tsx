@@ -323,4 +323,14 @@ describe("Chat", () => {
     expect(live).toHaveAttribute("aria-live", "polite");
     expect(live).not.toHaveTextContent("[r1]");
   });
+
+  it("strips citation codes from unsupported claims in the flagged alert", async () => {
+    const flag = { grounded: false, action: "flag", unsupported_claims: ["Knows Kafka [r1] well [j2] ."], mode: "enforce" };
+    fetchMock.mockResolvedValueOnce(sse(ev("verdict", flag), ev("done", done())));
+    const user = userEvent.setup();
+    render(<Chat />);
+    await ask(user);
+    expect(await screen.findByText("Knows Kafka well.")).toBeInTheDocument();
+    expect(screen.queryByText(/\[[rj]\d+\]/)).not.toBeInTheDocument();
+  });
 });

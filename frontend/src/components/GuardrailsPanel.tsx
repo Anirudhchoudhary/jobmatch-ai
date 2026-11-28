@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
+import { stripCitationLabels } from "@/lib/citations";
 import type { GuardrailOutcome, Verdict } from "@/lib/types";
 
 const EXPLAIN: Record<string, string> = {
@@ -36,7 +37,7 @@ export function GuardrailsPanel({ checks, verdict }: { checks: GuardrailOutcome[
                 <p className="font-medium text-danger">Verdict: flagged. These claims were not supported:</p>
                 <ul className="list-disc pl-5">
                   {verdict.unsupported_claims.map((c, i) => (
-                    <li key={i}>{c}</li>
+                    <li key={i}>{stripCitationLabels(c)}</li>
                   ))}
                 </ul>
               </div>
