@@ -38,6 +38,21 @@ describe("AnswerText", () => {
     expect(row).toHaveTextContent("2 Job description · Requirements");
   });
 
+  it("keeps superscripts and the Sources row out of text selection and copying", () => {
+    const { container } = render(
+      <AnswerText text="Skills [r1][j2]." citations={[cite("r1", "a"), cite("j2", "b")]} />,
+    );
+    for (const b of container.querySelectorAll("sup button")) expect(b).toHaveClass("select-none");
+    expect(screen.getByText("Sources").parentElement).toHaveClass("select-none");
+    expect(container.querySelector("sup")!.nextElementSibling!.tagName).toBe("SUP"); // adjacent, no letters between
+    expect(container.querySelector("p")!.textContent).not.toMatch(/[rj]\d/);
+  });
+
+  it("does not announce every frame while typing", () => {
+    const { container } = render(<AnswerText text="Hi" citations={[]} typing />);
+    expect(container.querySelector("p")).toHaveAttribute("aria-live", "off");
+  });
+
   it("toggles the quote from a Sources chip too", async () => {
     const user = userEvent.setup();
     render(<AnswerText text="Kafka [r1]." citations={[cite("r1", "quote body")]} />);

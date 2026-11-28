@@ -46,6 +46,6 @@ export function numberCitations(
 /** "Resume · Summary" / "Job description · Requirements" (lowercase sections are title-cased). */
 export function sourceName(c: Citation): string {
   const doc = c.doc_type === "resume" ? "Resume" : "Job description";
-  const section = c.section === c.section.toLowerCase() ? c.section.replace(/\b\p{L}/gu, (ch) => ch.toUpperCase()) : c.section;
+  const section = c.section === c.section.toLowerCase() ? c.section.replace(/(^|\s)\p{L}/gu, (ch) => ch.toUpperCase()) : c.section;
   return `${doc} · ${section}`;
 }

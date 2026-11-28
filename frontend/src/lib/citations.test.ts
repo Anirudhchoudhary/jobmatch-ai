@@ -40,6 +40,8 @@ describe("numberCitations", () => {
 describe("sourceName", () => {
   it("names the document type and title-cases lowercase sections", () => {
     expect(sourceName(cite("r1", "work experience"))).toBe("Resume · Work Experience");
+    expect(sourceName(cite("r1", "candidate's skills"))).toBe("Resume · Candidate's Skills");
+    expect(sourceName(cite("r1", "node.js"))).toBe("Resume · Node.js");
     expect(sourceName(cite("j1", "Requirements"))).toBe("Job description · Requirements");
   });
 });

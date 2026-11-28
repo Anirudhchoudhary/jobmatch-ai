@@ -27,7 +27,6 @@ const STEP_INDEX: Record<string, number> = {
   retrieving: 1,
   reranking: 1,
   generating: 2,
-  cache_hit: 2,
   checking_answer: 2,
 };
 

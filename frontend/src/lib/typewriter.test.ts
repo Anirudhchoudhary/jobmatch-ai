@@ -40,6 +40,21 @@ describe("useTypewriter", () => {
     expect(result.current.shown).toBe(target);
   });
 
+  it("keeps the shown text a prefix when the target grows mid-reveal", () => {
+    const first = "a".repeat(40);
+    const second = first + "b".repeat(40);
+    const { result, rerender } = renderHook(({ t }) => useTypewriter(t, { done: false }), { initialProps: { t: first } });
+    frames(2);
+    const before = result.current.shown;
+    expect(before.length).toBeGreaterThan(0);
+    expect(before.length).toBeLessThan(40);
+    rerender({ t: second });
+    expect(second.startsWith(result.current.shown)).toBe(true);
+    expect(result.current.shown.startsWith(before)).toBe(true);
+    frames(60);
+    expect(result.current.shown).toBe(second);
+  });
+
   it("shows everything at once under reduced motion", () => {
     const { result } = renderHook(() => useTypewriter("all at once", { done: false, reducedMotion: true }));
     expect(result.current).toEqual({ shown: "all at once", typing: true });

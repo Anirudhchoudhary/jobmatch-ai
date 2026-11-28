@@ -28,7 +28,7 @@ export function AnswerText({
 
   return (
     <div className="flex flex-col gap-2">
-      <p className="whitespace-pre-wrap">
+      <p aria-live={typing ? "off" : undefined} className="whitespace-pre-wrap">
         {parts.map((part, i) =>
           typeof part === "string" ? (
             <Fragment key={i}>{part}</Fragment>
@@ -39,7 +39,7 @@ export function AnswerText({
                 aria-expanded={open === part.n}
                 aria-label={`Source ${part.n}: ${sourceName(sources[part.n - 1].citation)}`}
                 onClick={() => toggle(part.n)}
-                className={`mx-px rounded px-0.5 font-bold text-brand hover:underline ${FOCUS}`}
+                className={`mx-px select-none rounded px-1.5 py-1 font-bold text-brand hover:underline ${FOCUS}`}
               >
                 {part.n}
               </button>
@@ -55,7 +55,7 @@ export function AnswerText({
         ) : null}
       </p>
       {sources.length > 0 ? (
-        <div className="flex flex-wrap items-center gap-1.5 border-t border-border pt-2 text-xs text-muted">
+        <div className="flex select-none flex-wrap items-center gap-1.5 border-t border-border pt-2 text-xs text-muted">
           <span>Sources</span>
           {sources.map(({ n, citation }) => (
             <button
@@ -73,7 +73,7 @@ export function AnswerText({
       {opened ? (
         <blockquote className="rounded-md border border-border bg-surface-muted p-3 text-sm">
           <p className="mb-1 font-medium text-muted">{sourceName(opened)}</p>
-          <p className="whitespace-pre-wrap">{opened.text}</p>
+          <p aria-live={typing ? "off" : undefined} className="whitespace-pre-wrap">{opened.text}</p>
         </blockquote>
       ) : null}
     </div>
