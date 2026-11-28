@@ -1,6 +1,66 @@
 # JobMatch AI
 
-JobMatch AI is a backend that matches resumes to jobs using LLMs and pgvector similarity search. This repository currently contains Phases 1 to 8: a FastAPI app with structured, PII-redacted logging, a Postgres + pgvector database, migrations and a health endpoint (Phase 1), plus resume/JD ingestion, hybrid retrieval with reranking and streamed, cited chat (Phase 2), plus grounded match analysis and resume bullet suggestions (Phase 3), plus guardrails around uploads, chat and model output (Phase 4), plus request logging, cost tracking, a spend cap, a semantic cache and optional tracing (Phase 5), plus an eval suite with a golden dataset and a CI gate (Phase 6), plus email one-time-code sign-in and an AWS CLI deploy to Lambda (Phase 7), plus a Next.js web frontend served through CloudFront at jobmatch.ntrye.com (Phase 8).
+**See how well a resume fits a job, with the evidence.** A production-style LLM app: grounded RAG,
+guardrails you can inspect, an eval suite that gates CI, and cost control, deployed on AWS for about $2 a month.
+
+**[▶ Live demo, no sign-in](https://jobmatch.ntrye.com/demo/)** · [Open the app](https://jobmatch.ntrye.com) · [Architecture](docs/architecture.md)
+
+![JobMatch AI demo: a match score with evidence, grounded rewrites, and a chat answer with numbered sources](media/demo.gif)
+
+## What makes it different
+
+- **Every claim is checked against the documents.** Chat answers cite numbered sources; each sentence is
+  judged against the passages it cites, and anything unsupported is flagged instead of shown as verified.
+- **The model never picks the score.** Claude extracts requirements and matches them with quoted evidence;
+  every quote is verified against the resume, and the score is computed in code, so it is reproducible.
+- **Rewrites cannot invent experience.** Suggested bullets that add employers, skills or numbers not in the
+  original are rejected.
+- **Guardrails you can see.** Prompt-injection detection (also on uploaded PDFs), topic and PII checks, and a
+  "Show guardrails" panel listing every check that ran on an answer.
+- **Hybrid retrieval.** pgvector + Postgres full-text search, fused with RRF and reranked, because resumes are
+  full of exact terms (Kafka, Terraform, "5+ years") that embeddings blur.
+- **Measured, not assumed.** A 33-case golden dataset gates every PR offline; live runs use an LLM judge.
+- **Production habits.** Per-request cost and latency logging, a daily spend cap, a semantic cache, PII
+  redaction in logs and traces, secrets only in AWS Secrets Manager, and a serverless deploy with no hourly bills.
+
+## Results (live models, CI subset)
+
+| Area | Metric | Result |
+|---|---|---|
+| Chat | Faithfulness (LLM judge) | 1.00 |
+| Chat | Answer relevancy / contextual recall | 0.95 / 1.00 |
+| Analysis | Skill F1 / score-band accuracy | 0.89 / 0.91 |
+| Retrieval | Recall@5 / MRR: vector only → hybrid + rerank | 0.92 / 0.66 → 0.92 / 0.78 |
+| Guardrails | Off-topic caught / false positives / PII leaks | 100% / 0% / 0 |
+| Guardrails | Prompt injections caught | 71% (the next thing to improve) |
+| Cost | One live eval run, including the judge | $0.55 |
+
+## How it works
+
+```mermaid
+flowchart LR
+  U[Browser] --> CF[CloudFront]
+  CF --> S3[(S3: Next.js static site)]
+  CF -->|/api/*| L[Lambda: FastAPI + LangGraph]
+  L --> PG[(Postgres + pgvector)]
+  L --> C[Claude Haiku / Sonnet]
+  L --> B[Bedrock: Titan embeddings, Rerank]
+  L --> LF[Langfuse traces, PII-masked]
+```
+
+A resume (PDF) and a job description are chunked by section, scanned for prompt injection, embedded and
+stored. Three LangGraph workflows run on top: **match** (extract → match with quotes → verify quotes →
+score in code), **suggest** (pick bullets → rewrite → reject anything not in the source) and **chat**
+(input guards → semantic cache → hybrid retrieval → rerank → streamed answer → per-claim grounding check).
+More in [docs/architecture.md](docs/architecture.md).
+
+**Stack:** Python, FastAPI, LangGraph, Claude (Haiku 5.5 default, Sonnet 5.5 fallback and judge), Amazon
+Bedrock, Postgres + pgvector (Neon), Next.js, Tailwind, AWS Lambda, CloudFront, S3, Route 53, GitHub Actions,
+Playwright, DeepEval, Langfuse.
+
+## Build log
+
+The project was built in phases. This repository contains Phases 1 to 8: a FastAPI app with structured, PII-redacted logging, a Postgres + pgvector database, migrations and a health endpoint (Phase 1), plus resume/JD ingestion, hybrid retrieval with reranking and streamed, cited chat (Phase 2), plus grounded match analysis and resume bullet suggestions (Phase 3), plus guardrails around uploads, chat and model output (Phase 4), plus request logging, cost tracking, a spend cap, a semantic cache and optional tracing (Phase 5), plus an eval suite with a golden dataset and a CI gate (Phase 6), plus email one-time-code sign-in and an AWS CLI deploy to Lambda (Phase 7), plus a Next.js web frontend served through CloudFront at jobmatch.ntrye.com (Phase 8).
 
 ## Prerequisites
 
@@ -462,6 +522,13 @@ A guided four-step flow on a calm light design, with a new app icon:
 2. **Documents:** drop or choose a resume (PDF) and paste a job description, or try the sample. Ingestion starts instantly with live status cards, then moves you on to Match. A reload restores your documents and your place.
 3. **Match and Improve:** the match score ring with its breakdown and cited evidence runs automatically when you arrive, and resume bullet suggestions follow on the next step. A reload never spends a new run.
 4. **Ask:** starter questions or your own, answered with smooth typing, numbered source citations (a Sources row you can open to read the cited passage) and a "Show guardrails" panel listing the verdict and every check that ran.
+
+### No-sign-in demo
+
+`/demo/` runs the same four steps on a recorded run of the sample resume, replayed in the browser: no
+sign-in, no API calls, nothing spent. The recording (`frontend/src/demo/recording.json`) is a real run
+through Claude and Bedrock against the local database; refresh it with `make record-demo` (reads only the
+Anthropic key from `jobmatch/prod`, costs about a cent). `make fe-e2e` also checks the demo.
 
 ### Run it locally
 
