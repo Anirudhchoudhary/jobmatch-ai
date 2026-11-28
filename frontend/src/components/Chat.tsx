@@ -10,7 +10,7 @@ import { AnswerText } from "@/components/AnswerText";
 import { GuardrailsPanel } from "@/components/GuardrailsPanel";
 import { GENERIC_ERROR_MESSAGE } from "@/lib/api";
 import { numberCitations, stripCitationLabels } from "@/lib/citations";
-import { streamSse } from "@/lib/sse";
+import { useBackend } from "@/lib/backend";
 import { useTypewriter } from "@/lib/typewriter";
 import type { ChatDone, Verdict } from "@/lib/types";
 
@@ -115,6 +115,8 @@ function TurnView({ turn }: { turn: Turn }) {
 
 /** Streaming Q&A over the two documents. History lives in component state only. */
 export function Chat() {
+  const backend = useBackend();
+  const starters = backend.starters ?? STARTERS;
   const [question, setQuestion] = useState("");
   const [turns, setTurns] = useState<Turn[]>([]);
   const [busy, setBusy] = useState(false);
@@ -133,7 +135,7 @@ export function Chat() {
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     try {
-      await streamSse(
+      await backend.stream(
         "/api/stream/chat",
         { question: q },
         (name, data) => {
@@ -174,7 +176,7 @@ export function Chat() {
       ) : null}
       {turns.length === 0 ? (
         <div role="group" aria-label="Starter questions" className="flex flex-wrap gap-2">
-          {STARTERS.map((q) => (
+          {starters.map((q) => (
             <button
               key={q}
               type="button"

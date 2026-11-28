@@ -14,10 +14,9 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Progress, type ProgressStatus } from "@/components/Progress";
-import { apiGet, GENERIC_ERROR_MESSAGE } from "@/lib/api";
-import { streamSse } from "@/lib/sse";
+import { GENERIC_ERROR_MESSAGE } from "@/lib/api";
+import { useBackend } from "@/lib/backend";
 import type { DocumentList, DocumentReady } from "@/lib/types";
-import { uploadResume } from "@/lib/upload";
 
 const JD_MIN = 50;
 const JD_MAX = 20000;
@@ -38,6 +37,7 @@ export function Documents({
 }: {
   onReady: (changed: boolean) => void;
 }) {
+  const backend = useBackend();
   const [docs, setDocs] = useState<StoredDoc[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [active, setActive] = useState<DocType[]>([]);
@@ -71,37 +71,40 @@ export function Documents({
 
   const busy = active.length > 0;
 
-  const refresh = useCallback(async (changed = false) => {
-    try {
-      const { documents } = await apiGet<DocumentList>("/api/documents");
-      if (!mounted.current) return;
-      setDocs(documents);
-      const both = ["resume", "jd"].every((t) =>
-        documents.some((d) => d.doc_type === t),
-      );
-      // Fire once on first load, then again whenever a replacement succeeds.
-      if (both && (changed || !notified.current)) {
-        if (changed && !notified.current) {
-          // The pair just became complete: confirm it for a moment before the flow moves on.
-          setConfirming(true);
-          clearTimeout(confirmTimer.current);
-          confirmTimer.current = setTimeout(() => {
-            if (!mounted.current) return;
+  const refresh = useCallback(
+    async (changed = false) => {
+      try {
+        const { documents } = await backend.get<DocumentList>("/api/documents");
+        if (!mounted.current) return;
+        setDocs(documents);
+        const both = ["resume", "jd"].every((t) =>
+          documents.some((d) => d.doc_type === t),
+        );
+        // Fire once on first load, then again whenever a replacement succeeds.
+        if (both && (changed || !notified.current)) {
+          if (changed && !notified.current) {
+            // The pair just became complete: confirm it for a moment before the flow moves on.
+            setConfirming(true);
+            clearTimeout(confirmTimer.current);
+            confirmTimer.current = setTimeout(() => {
+              if (!mounted.current) return;
+              notified.current = true;
+              setConfirming(false);
+              onReadyRef.current(true);
+            }, CONFIRM_MS);
+          } else {
             notified.current = true;
-            setConfirming(false);
-            onReadyRef.current(true);
-          }, CONFIRM_MS);
-        } else {
-          notified.current = true;
-          onReadyRef.current(changed);
+            onReadyRef.current(changed);
+          }
         }
+      } catch (e) {
+        if (mounted.current) setError(messageOf(e));
+      } finally {
+        if (mounted.current) setLoaded(true);
       }
-    } catch (e) {
-      if (mounted.current) setError(messageOf(e));
-    } finally {
-      if (mounted.current) setLoaded(true);
-    }
-  }, []);
+    },
+    [backend],
+  );
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -143,7 +146,7 @@ export function Documents({
   }
 
   function stream(path: string, body: unknown, doneCount = 1) {
-    return streamSse(
+    return backend.stream(
       path,
       body,
       (name, data) => {
@@ -188,7 +191,7 @@ export function Documents({
   const submitResume = (file: File) =>
     void run(["resume"], async () => {
       setSteps({ uploading: "started" });
-      const key = await uploadResume(file);
+      const key = await backend.upload(file);
       setSteps({ uploading: "done" });
       await stream("/api/stream/documents", {
         doc_type: "resume",
@@ -258,13 +261,15 @@ export function Documents({
                   <Check aria-hidden="true" className="mr-1 size-3" />
                   Ready
                 </Badge>
-                <Button
-                  variant="ghost"
-                  onClick={() => startReplace(t)}
-                  aria-label={`Replace ${t === "resume" ? "resume" : "job description"}`}
-                >
-                  Replace
-                </Button>
+                {backend.demo ? null : (
+                  <Button
+                    variant="ghost"
+                    onClick={() => startReplace(t)}
+                    aria-label={`Replace ${t === "resume" ? "resume" : "job description"}`}
+                  >
+                    Replace
+                  </Button>
+                )}
               </>
             )}
           </div>

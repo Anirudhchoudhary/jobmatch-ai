@@ -47,8 +47,8 @@ function NextButton({ onClick, children }: { onClick(): void; children: ReactNod
  * documents, results and the chat history survive moving between steps. Paid runs auto-start
  * only on the active step, and only when the user's own action brought them there.
  */
-export function Workspace() {
-  const flow = useFlow();
+export function Workspace({ landOn }: { landOn?: StepId } = {}) {
+  const flow = useFlow({ landOn });
   const { step, arrival, unlocked, done, goTo, onAnalysis } = flow;
   const [analysisId, setAnalysisId] = useState<string | null>(null);
 

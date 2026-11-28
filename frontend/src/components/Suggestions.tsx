@@ -7,8 +7,8 @@ import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { StatusLine, type StatusItem } from "@/components/ui/StatusLine";
 import type { StepId } from "@/lib/flow";
-import { apiGet, ApiError, GENERIC_ERROR_MESSAGE } from "@/lib/api";
-import { streamSse } from "@/lib/sse";
+import { ApiError, GENERIC_ERROR_MESSAGE } from "@/lib/api";
+import { useBackend } from "@/lib/backend";
 import type { BulletSuggestions } from "@/lib/types";
 
 // Backend progress steps in order (`loading` precedes all of them), with friendly labels.
@@ -41,6 +41,7 @@ export function Suggestions({
   onResult?: (present: boolean) => void;
   goTo?: (step: StepId) => void;
 } = {}) {
+  const backend = useBackend();
   const [result, setResult] = useState<BulletSuggestions | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -54,7 +55,8 @@ export function Suggestions({
 
   useEffect(() => {
     let cancelled = false;
-    apiGet<BulletSuggestions>("/api/suggestions/latest")
+    backend
+      .get<BulletSuggestions>("/api/suggestions/latest")
       .then((s) => !cancelled && setResult(s))
       .catch((e: unknown) => {
         if (cancelled || (e instanceof ApiError && e.code === "suggestions_not_found")) return;
@@ -64,7 +66,7 @@ export function Suggestions({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [backend]);
 
   const present = result !== null;
   useEffect(() => {
@@ -83,7 +85,7 @@ export function Suggestions({
     setStep(null);
     try {
       let fresh: BulletSuggestions | null = null;
-      await streamSse("/api/stream/suggestions", {}, (name, data) => {
+      await backend.stream("/api/stream/suggestions", {}, (name, data) => {
         if (name === "progress") setStep((data as { step: string }).step);
         else if (name === "done") fresh = data as BulletSuggestions;
       });
