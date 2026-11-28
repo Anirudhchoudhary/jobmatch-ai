@@ -298,7 +298,12 @@ def build_chat_graph(
     graph.add_edge("retrieve", "rerank")
     graph.add_conditional_edges("rerank", route, ["refuse", "generate"])
     graph.add_edge("refuse", "finalize")
-    graph.add_edge("generate", "output_guards")
+    # An empty generation became our own retry message: nothing to check, nothing to cache.
+    graph.add_conditional_edges(
+        "generate",
+        lambda s: "finalize" if s["refused"] else "output_guards",
+        ["finalize", "output_guards"],
+    )
     graph.add_edge("output_guards", "cache_store")
     graph.add_edge("cache_store", "finalize")
     graph.add_edge("finalize", END)

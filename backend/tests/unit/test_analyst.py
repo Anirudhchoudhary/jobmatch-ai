@@ -245,3 +245,29 @@ def test_extract_skills_prompt_asks_for_names_and_one_short_quote() -> None:
     text = load_prompt("extract_skills").text.lower()
     assert "at most 1 evidence item" in text
     assert "100 characters" in text
+
+
+async def test_claude_rewrite_drops_bullets_it_left_unchanged() -> None:
+    same = "R&D lead for Kafka pipelines at AT&T"
+    a, _ = analyst(
+        {
+            "suggestions": [
+                {
+                    "source": "r1",
+                    "original": same,
+                    "rewritten": f" {same.upper()} ",
+                    "rationale": "x",
+                    "target_skills": [],
+                },
+                {
+                    "source": "r1",
+                    "original": same,
+                    "rewritten": "Led R&D on Kafka pipelines at AT&T",
+                    "rationale": "y",
+                    "target_skills": [],
+                },
+            ]
+        }
+    )
+    drafts = await a.rewrite({"r1": AMP_R1}, [])
+    assert [d.rewritten for d in drafts] == ["Led R&D on Kafka pipelines at AT&T"]

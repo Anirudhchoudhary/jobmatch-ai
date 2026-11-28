@@ -1,27 +1,67 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Analysis } from "@/components/Analysis";
 import { Chat } from "@/components/Chat";
 import { Documents } from "@/components/Documents";
 import { Stepper } from "@/components/Stepper";
 import { Suggestions } from "@/components/Suggestions";
 import { Button } from "@/components/ui/Button";
+import { useBackend } from "@/lib/backend";
 import { useFlow, type StepId } from "@/lib/flow";
 
 const TITLES: Record<StepId, [string, string]> = {
-  documents: ["Step 1 · Your documents", "Add your resume and the job description, or try the sample."],
-  match: ["Step 2 · Your match", "How well your resume covers the job, with the evidence for each skill."],
-  improve: ["Step 3 · Improve your resume", "Stronger wording for your bullets, grounded in what your resume already says."],
-  ask: ["Step 4 · Ask about the fit", "Answers come only from your two documents, with their sources."],
+  documents: [
+    "Step 1 · Your documents",
+    "Add your resume and the job description, or try the sample.",
+  ],
+  match: [
+    "Step 2 · Your match",
+    "How well your resume covers the job, with the evidence for each skill.",
+  ],
+  improve: [
+    "Step 3 · Improve your resume",
+    "Stronger wording for your bullets, grounded in what your resume already says.",
+  ],
+  ask: [
+    "Step 4 · Ask about the fit",
+    "Answers come only from your two documents, with their sources.",
+  ],
 };
 
-function StepPanel({ id, active, children }: { id: StepId; active: boolean; children: ReactNode }) {
-  const [title, intro] = TITLES[id];
+const DEMO_DOCUMENTS_INTRO =
+  "The sample resume and job description this demo was recorded with.";
+
+function StepPanel({
+  id,
+  active,
+  children,
+}: {
+  id: StepId;
+  active: boolean;
+  children: ReactNode;
+}) {
+  const [title, liveIntro] = TITLES[id];
+  const intro =
+    useBackend().demo && id === "documents" ? DEMO_DOCUMENTS_INTRO : liveIntro;
   return (
-    <section hidden={!active} aria-labelledby={`step-${id}-title`} className="flex flex-col gap-4">
+    <section
+      hidden={!active}
+      aria-labelledby={`step-${id}-title`}
+      className="flex flex-col gap-4"
+    >
       <div>
-        <h1 id={`step-${id}-title`} tabIndex={-1} className="text-xl font-semibold tracking-tight focus:outline-none sm:text-2xl">
+        <h1
+          id={`step-${id}-title`}
+          tabIndex={-1}
+          className="text-xl font-semibold tracking-tight focus:outline-none sm:text-2xl"
+        >
           {title}
         </h1>
         <p className="mt-1 text-sm text-muted">{intro}</p>
@@ -31,7 +71,13 @@ function StepPanel({ id, active, children }: { id: StepId; active: boolean; chil
   );
 }
 
-function NextButton({ onClick, children }: { onClick(): void; children: ReactNode }) {
+function NextButton({
+  onClick,
+  children,
+}: {
+  onClick(): void;
+  children: ReactNode;
+}) {
   return (
     <div className="flex justify-end">
       <Button onClick={onClick}>
@@ -66,7 +112,8 @@ export function Workspace({ landOn }: { landOn?: StepId } = {}) {
   useEffect(() => {
     if (lastStep.current === step) return;
     lastStep.current = step;
-    if (arrival === "user") document.getElementById(`step-${step}-title`)?.focus();
+    if (arrival === "user")
+      document.getElementById(`step-${step}-title`)?.focus();
   }, [step, arrival]);
 
   if (flow.restoring) {
@@ -86,7 +133,9 @@ export function Workspace({ landOn }: { landOn?: StepId } = {}) {
       <StepPanel id="documents" active={step === "documents"}>
         <Documents onReady={flow.onDocumentsReady} />
         {flow.revisitingDocuments ? (
-          <NextButton onClick={() => goTo("match")}>Continue to your match</NextButton>
+          <NextButton onClick={() => goTo("match")}>
+            Continue to your match
+          </NextButton>
         ) : null}
       </StepPanel>
 

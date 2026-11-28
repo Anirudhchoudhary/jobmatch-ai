@@ -65,7 +65,6 @@ function freeTextReply(): RecordedEvent[] {
     cached: false,
   };
   return [
-    { t: 0, event: "progress", data: { step: "checking_input" } },
     { t: 0, event: "token", data: { text: DEMO_FREE_TEXT_ANSWER } },
     { t: 0, event: "done", data: done },
   ];

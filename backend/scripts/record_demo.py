@@ -2,7 +2,7 @@
 
 Runs the app in-process against the LOCAL database (`make up migrate` first), with Claude and
 Bedrock. Only `ANTHROPIC_API_KEY` is read from the prod secret, into this process; no other prod
-value (in particular not the prod `DATABASE_URL`) is used. Costs a few cents; run it only when the
+value (in particular not the prod `DATABASE_URL`) is used. Costs about a cent; run it only when the
 recording needs refreshing. Writes `frontend/src/demo/recording.json`.
 
 Usage: `make record-demo` (or `python -m scripts.record_demo --out PATH`).

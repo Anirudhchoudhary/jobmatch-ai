@@ -32,8 +32,12 @@ guardrails you can inspect, an eval suite that gates CI, and cost control, deplo
 | Analysis | Skill F1 / score-band accuracy | 0.89 / 0.91 |
 | Retrieval | Recall@5 / MRR: vector only → hybrid + rerank | 0.92 / 0.66 → 0.92 / 0.78 |
 | Guardrails | Off-topic caught / false positives / PII leaks | 100% / 0% / 0 |
-| Guardrails | Prompt injections caught | 71% (the next thing to improve) |
+| Guardrails | Prompt injections caught | 71% |
+| Refusals | Correct refusals / fabrication requests blocked | 62% / 33% |
 | Cost | One live eval run, including the judge | $0.55 |
+
+Injection catch rate and refusal correctness are below the 0.80 gate this project sets for itself; they are
+the next things to improve (see [Known limits](#known-limits-1) under Phase 6).
 
 ## How it works
 
@@ -399,7 +403,7 @@ make eval-live SUBSET=full     # everything
 make eval-live-baseline        # writes the committed evals/baseline.json (naive variant)
 ```
 
-These call Anthropic (judge and chat) and Bedrock, so they **spend money** on the key in the secret (`ANTHROPIC_API_KEY` in `jobmatch/dev`, or `jobmatch/ci` in CI). The spec estimate is $0.10 to $0.50 per full run with the Sonnet judge; the measured cost will be reported after the first live run. DeepEval telemetry is off and nothing is uploaded to Confident AI.
+These call Anthropic (judge and chat) and Bedrock, so they **spend money** on the key in the secret (`ANTHROPIC_API_KEY` in `jobmatch/dev`, or `jobmatch/ci` in CI). The spec estimate is $0.10 to $0.50 per full run with the Sonnet judge; the first live run of the 11-case CI subset cost $0.55, about 85% of it the judge. DeepEval telemetry is off and nothing is uploaded to Confident AI.
 
 ### CI
 
@@ -424,11 +428,12 @@ Offline, heuristic/fake pipeline, 33 cases (not quality claims):
 | Catch rate: injection / off-topic / PII | 0.00 / 0.00 / 0.00 | 0.43 / 0.00 / 0.50 |
 | False-positive rate (any guardrail) | 0.00 | 0.00 |
 
-The answerable answer rate is 0 because the fake chat model returns one fixed answer, which the groundedness guard correctly flags as ungrounded. Only upload and chat-input firings count toward catch and false-positive rates (output-stage groundedness firings do not), so the catch rates are low offline: the off-topic guard needs a real classifier. Analysis and retrieval do not differ between variants offline (the hash embedder is not semantic, no reranker), so those deltas are about 0. Live numbers and the measured cost per run land after the first live run.
+The answerable answer rate is 0 because the fake chat model returns one fixed answer, which the groundedness guard correctly flags as ungrounded. Only upload and chat-input firings count toward catch and false-positive rates (output-stage groundedness firings do not), so the catch rates are low offline: the off-topic guard needs a real classifier. Analysis and retrieval do not differ between variants offline (the hash embedder is not semantic, no reranker), so those deltas are about 0. Live numbers (real Claude, Bedrock and a Sonnet judge, 11-case CI subset, $0.55): faithfulness 1.00, answer relevancy 0.95, contextual precision 0.95 and recall 1.00, skill F1 0.89, score-band accuracy 0.91, answerable answer rate 0.94, PII leaks 0, false positives 0, off-topic caught 1.00, injection caught 0.71 (rules 0.71, classifier 0.29), refusal correctness 0.62 and hallucination-block rate 0.33. The last three miss the 0.80 gate and are the next tuning targets.
 
 ### Known limits
 
 - Offline numbers measure the heuristic/fake pipeline only; they say nothing about real model quality.
+- Live: the injection classifier catches only 29% on its own (rules carry the 71%), refusals of fabrication requests are weak (33%), and the groundedness judge can flag a correct "your resume doesn't mention X" sentence, because absence cannot be quoted from a source.
 - The self-built versus Bedrock guardrail comparison needs a Bedrock guardrail, which is not created yet; the Bedrock rows are empty until then.
 - `evals/baseline.json` has not been captured live yet, so live runs have no before/after deltas.
 

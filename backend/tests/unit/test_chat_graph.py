@@ -207,6 +207,10 @@ async def test_empty_answer_becomes_a_retry_message() -> None:
     assert "".join(tokens(events)) == EMPTY_ANSWER_TEXT
     assert done.refused is True
     assert done.citations == []
+    # Our own retry message is not a claim: the groundedness check must not run or flag it.
+    assert "checking_answer" not in steps(events)
+    assert all(o.guardrail != "groundedness" for o in done.guardrail_checks)
+    assert all(not (isinstance(e, Verdict) and e.action == "flag") for _, e in events)
 
 
 async def test_one_relevant_chunk_is_enough() -> None:

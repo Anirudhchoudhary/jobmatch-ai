@@ -61,7 +61,7 @@ retrieval-eval:
 	$(RUN) python -m scripts.retrieval_eval --out ../var/retrieval_baseline.offline.json
 
 # Re-records the no-sign-in demo (frontend/src/demo/recording.json) from the LOCAL database with
-# real Claude + Bedrock; reads only ANTHROPIC_API_KEY from the prod secret. Costs cents; ask first.
+# real Claude + Bedrock; reads only ANTHROPIC_API_KEY from the prod secret. Costs about a cent; ask first.
 record-demo:
 	cd backend && $(UV) run python -m scripts.record_demo
 
